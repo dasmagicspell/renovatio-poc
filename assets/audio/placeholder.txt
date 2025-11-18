@@ -1,0 +1,8 @@
+This is a placeholder file. Replace this with your actual audio files:
+
+- track1.mp4
+- track2.m4a  
+- track3.mp4
+- track4.mp4
+
+The audio player is configured to look for these files in the assets/audio/ directory.
