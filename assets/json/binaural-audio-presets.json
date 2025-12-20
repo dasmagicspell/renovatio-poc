@@ -1,0 +1,218 @@
+[
+    {
+      "activity": "Relax",
+      "description": "Promotes calmness, stress reduction, and gentle mental clarity without inducing sleep.",
+      "presets": {
+        "decrease": {
+          "label": "Deep Relax",
+          "beatFrequency": 6,
+          "leftFrequency": 200,
+          "rightFrequency": 206,
+          "effect": "Deeper relaxation with more theta influence, suitable for unwinding."
+        },
+        "base": {
+          "label": "Relax",
+          "beatFrequency": 8,
+          "leftFrequency": 200,
+          "rightFrequency": 208,
+          "effect": "Balanced relaxation and calm awareness using mid-alpha frequencies."
+        },
+        "increase": {
+          "label": "Light Relax",
+          "beatFrequency": 10,
+          "leftFrequency": 200,
+          "rightFrequency": 210,
+          "effect": "More alert relaxation while maintaining a calm mental state."
+        }
+      }
+    },
+    {
+      "activity": "Sleep",
+      "description": "Induces deep delta-wave states associated with falling asleep and restorative sleep.",
+      "presets": {
+        "decrease": {
+          "label": "Deep Sleep",
+          "beatFrequency": 1,
+          "leftFrequency": 200,
+          "rightFrequency": 201,
+          "effect": "Ultra-deep delta entrainment to support physical and mental restoration."
+        },
+        "base": {
+          "label": "Sleep",
+          "beatFrequency": 2,
+          "leftFrequency": 200,
+          "rightFrequency": 202,
+          "effect": "Ideal for falling asleep naturally and entering deep sleep cycles."
+        },
+        "increase": {
+          "label": "Light Sleep",
+          "beatFrequency": 3,
+          "leftFrequency": 200,
+          "rightFrequency": 203,
+          "effect": "Lighter delta entrainment, easier to wake from but still sleep-inducing."
+        }
+      }
+    },
+    {
+      "activity": "Exercise",
+      "description": "Boosts physical motivation, alertness, and readiness for movement.",
+      "presets": {
+        "decrease": {
+          "label": "Warm Up",
+          "beatFrequency": 14,
+          "leftFrequency": 200,
+          "rightFrequency": 214,
+          "effect": "Gentle stimulation suitable for starting exercise or warming up."
+        },
+        "base": {
+          "label": "Exercise",
+          "beatFrequency": 16,
+          "leftFrequency": 200,
+          "rightFrequency": 216,
+          "effect": "Standard beta-wave stimulation ideal for sustained movement and energy."
+        },
+        "increase": {
+          "label": "Intense Exercise",
+          "beatFrequency": 18,
+          "leftFrequency": 200,
+          "rightFrequency": 218,
+          "effect": "Higher energy and motivation for intense workouts or cardio."
+        }
+      }
+    },
+    {
+      "activity": "Meditate",
+      "description": "Supports deep introspection, stillness, mindfulness, and meditative absorption.",
+      "presets": {
+        "decrease": {
+          "label": "Deep Meditation",
+          "beatFrequency": 4,
+          "leftFrequency": 200,
+          "rightFrequency": 204,
+          "effect": "Deep theta entrainment for introspective or spiritual meditation."
+        },
+        "base": {
+          "label": "Meditate",
+          "beatFrequency": 6,
+          "leftFrequency": 200,
+          "rightFrequency": 206,
+          "effect": "Balanced theta waves ideal for most meditation styles."
+        },
+        "increase": {
+          "label": "Light Meditation",
+          "beatFrequency": 7,
+          "leftFrequency": 200,
+          "rightFrequency": 207,
+          "effect": "Shallower meditative state with more awareness and gentle calm."
+        }
+      }
+    },
+    {
+      "activity": "Focus",
+      "description": "Enhances concentration, mental stamina, and task-oriented attention.",
+      "presets": {
+        "decrease": {
+          "label": "Soft Focus",
+          "beatFrequency": 14,
+          "leftFrequency": 200,
+          "rightFrequency": 214,
+          "effect": "Gentle focus suitable for low-pressure workloads."
+        },
+        "base": {
+          "label": "Focus",
+          "beatFrequency": 15,
+          "leftFrequency": 200,
+          "rightFrequency": 215,
+          "effect": "High-beta stimulation for sharp concentration and productivity."
+        },
+        "increase": {
+          "label": "Intense Focus",
+          "beatFrequency": 18,
+          "leftFrequency": 200,
+          "rightFrequency": 218,
+          "effect": "Low-gamma stimulation for peak concentration and flow state."
+        }
+      }
+    },
+    {
+      "activity": "Study",
+      "description": "Supports learning, information retention, comprehension, and mental clarity.",
+      "presets": {
+        "decrease": {
+          "label": "Calm Study",
+          "beatFrequency": 10,
+          "leftFrequency": 200,
+          "rightFrequency": 210,
+          "effect": "Alpha-dominant pattern ideal for reading and relaxed learning."
+        },
+        "base": {
+          "label": "Study",
+          "beatFrequency": 12,
+          "leftFrequency": 200,
+          "rightFrequency": 212,
+          "effect": "Low-beta state that balances alertness and comprehension."
+        },
+        "increase": {
+          "label": "Active Study",
+          "beatFrequency": 14,
+          "leftFrequency": 200,
+          "rightFrequency": 214,
+          "effect": "Stronger mental activation for fast-paced learning sessions."
+        }
+      }
+    },
+    {
+      "activity": "Anxiety Relief",
+      "description": "Reduces anxiety by calming the nervous system through theta/alpha entrainment.",
+      "presets": {
+        "decrease": {
+          "label": "Deep Calm",
+          "beatFrequency": 4,
+          "leftFrequency": 200,
+          "rightFrequency": 204,
+          "effect": "Deep theta for strong anxiety reduction and nervous-system resetting."
+        },
+        "base": {
+          "label": "Anxiety Relief",
+          "beatFrequency": 6,
+          "leftFrequency": 200,
+          "rightFrequency": 206,
+          "effect": "Balanced calming effect ideal for general anxiety relief."
+        },
+        "increase": {
+          "label": "Light Calm",
+          "beatFrequency": 8,
+          "leftFrequency": 200,
+          "rightFrequency": 208,
+          "effect": "Mild relaxation without excessive sedation, good for daytime use."
+        }
+      }
+    },
+    {
+      "activity": "Energy Boost",
+      "description": "Stimulates high mental activity, alertness, and fast cognitive processing.",
+      "presets": {
+        "decrease": {
+          "label": "Mild Boost",
+          "beatFrequency": 25,
+          "leftFrequency": 200,
+          "rightFrequency": 225,
+          "effect": "Light gamma stimulation for subtle mood elevation and energy."
+        },
+        "base": {
+          "label": "Energy Boost",
+          "beatFrequency": 30,
+          "leftFrequency": 200,
+          "rightFrequency": 230,
+          "effect": "High gamma waves for noticeable increase in energy and alertness."
+        },
+        "increase": {
+          "label": "Intense Boost",
+          "beatFrequency": 35,
+          "leftFrequency": 200,
+          "rightFrequency": 235,
+          "effect": "Strong gamma activity for rapid activation and peak mental energy."
+        }
+      }
+    }
+  ]  

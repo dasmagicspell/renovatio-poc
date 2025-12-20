@@ -77,6 +77,8 @@ class ChatGPTService {
           'input': prompt,
           'voice': voice,
           'response_format': 'wav',
+          'speed': 0.7,
+          'instructions': 'Speak slowly, softly, and calmly. Use a gentle, reassuring tone suitable for affirmations.',
         },
         options: Options(
           responseType: ResponseType.bytes,

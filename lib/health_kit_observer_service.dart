@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'package:flutter/services.dart';
 
 class HealthKitObserverService {
@@ -13,12 +14,24 @@ class HealthKitObserverService {
   
   static bool _isInitialized = false;
   
-  /// Initialize the observer service
+  /// Check if HealthKit is available (iOS only)
+  static bool get isAvailable => Platform.isIOS;
+  
+  /// Initialize the observer service (iOS only)
   static Future<void> initialize() async {
+    if (!isAvailable) {
+      print('HealthKit observer is only available on iOS');
+      return;
+    }
+    
     if (_isInitialized) return;
     
-    _channel.setMethodCallHandler(_handleMethodCall);
-    _isInitialized = true;
+    try {
+      _channel.setMethodCallHandler(_handleMethodCall);
+      _isInitialized = true;
+    } catch (e) {
+      print('Error initializing HealthKit observer: $e');
+    }
   }
   
   /// Handle method calls from Swift
@@ -83,39 +96,65 @@ class HealthKitObserverService {
     }
   }
   
-  /// Request HealthKit authorization
+  /// Request HealthKit authorization (iOS only)
   static Future<void> requestAuthorization() async {
+    if (!isAvailable) {
+      print('HealthKit authorization is only available on iOS');
+      onError?.call('HealthKit is only available on iOS');
+      return;
+    }
+    
     try {
       await _channel.invokeMethod('requestAuthorization');
     } catch (e) {
       print('Error requesting authorization: $e');
+      onError?.call('Error requesting authorization: $e');
     }
   }
   
-  /// Start the heart rate observer
+  /// Start the heart rate observer (iOS only)
   static Future<void> startObserver() async {
+    if (!isAvailable) {
+      print('HealthKit observer is only available on iOS');
+      onError?.call('HealthKit observer is only available on iOS');
+      return;
+    }
+    
     try {
       await _channel.invokeMethod('startObserver');
     } catch (e) {
       print('Error starting observer: $e');
+      onError?.call('Error starting observer: $e');
     }
   }
   
-  /// Stop the heart rate observer
+  /// Stop the heart rate observer (iOS only)
   static Future<void> stopObserver() async {
+    if (!isAvailable) {
+      return;
+    }
+    
     try {
       await _channel.invokeMethod('stopObserver');
     } catch (e) {
       print('Error stopping observer: $e');
+      onError?.call('Error stopping observer: $e');
     }
   }
   
-  /// Manually fetch heart rate data now
+  /// Manually fetch heart rate data now (iOS only)
   static Future<void> fetchDataNow() async {
+    if (!isAvailable) {
+      print('HealthKit data fetching is only available on iOS');
+      onError?.call('HealthKit data fetching is only available on iOS');
+      return;
+    }
+    
     try {
       await _channel.invokeMethod('fetchDataNow');
     } catch (e) {
       print('Error fetching data now: $e');
+      onError?.call('Error fetching data now: $e');
     }
   }
   

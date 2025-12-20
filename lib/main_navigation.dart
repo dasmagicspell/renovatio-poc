@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'audio_player_page.dart';
 import 'health_data_page.dart';
 import 'sessions_page.dart';
+import 'audio_generation_page.dart';
 
 class MainNavigation extends StatefulWidget {
   const MainNavigation({super.key});
@@ -16,12 +17,14 @@ class _MainNavigationState extends State<MainNavigation> {
   final List<Widget> _pages = [
     const SessionsPage(),
     const AudioPlayerPage(),
+    const AudioGenerationPage(),
     const HealthDataPage(),
   ];
   
   final List<String> _pageTitles = [
-    'Wellness Sessions',
+    'Wellness Soundscapes',
     'Audio Player',
+    'Audio Generation',
     'Health Data',
   ];
 
@@ -108,9 +111,10 @@ class _MainNavigationState extends State<MainNavigation> {
             child: ListView(
               padding: EdgeInsets.zero,
               children: [
-                _buildDrawerItem(0, 'Sessions', Icons.psychology),
+                _buildDrawerItem(0, 'Soundscapes', Icons.psychology),
                 _buildDrawerItem(1, 'Audio Player', Icons.music_note),
-                _buildDrawerItem(2, 'Health Data', Icons.favorite),
+                _buildDrawerItem(2, 'Audio Generation', Icons.graphic_eq),
+                _buildDrawerItem(3, 'Health Data', Icons.favorite),
                 
                 const Divider(
                   color: Colors.grey,

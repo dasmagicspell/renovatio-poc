@@ -5,6 +5,9 @@ plugins {
     id("dev.flutter.flutter-gradle-plugin")
 }
 
+// Override Flutter's default minSdkVersion to 26 (required by health plugin)
+val flutterMinSdkVersion: Int = rootProject.extra.get("flutter.minSdkVersion") as? Int ?: 26
+
 android {
     namespace = "com.example.renovatio"
     compileSdk = flutter.compileSdkVersion
@@ -24,7 +27,7 @@ android {
         applicationId = "com.example.renovatio"
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
-        minSdk = flutter.minSdkVersion
+        minSdk = flutterMinSdkVersion
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName

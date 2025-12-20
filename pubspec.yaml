@@ -15,9 +15,11 @@ dependencies:
   ffmpeg_kit_flutter_new: ^3.2.0
   path_provider: ^2.1.1
   permission_handler: ^11.0.1
-  health: ^10.0.0
+  health: ^13.2.1
   http: ^1.1.0
   dio: ^5.3.2
+  uuid: ^4.0.0
+  crypto: ^3.0.3
 
 dev_dependencies:
   flutter_test:
@@ -29,6 +31,14 @@ flutter:
   assets:
     - assets/audio/
     - assets/audio/background-audio/
+    - assets/audio/background-audio/forest.mp3
+    - assets/audio/background-audio/forest.mp4
+    - assets/audio/background-audio/ocean-waves.mp4
+    - assets/audio/background-music/
     - assets/audio/binaural/
+    - assets/audio/binaural/generated/
+    - assets/audio/binaural/generated/relax/
+    - assets/audio/binaural/generated/sleep/
     - assets/audio/narration/
+    - assets/json/
     - lib/schemas/

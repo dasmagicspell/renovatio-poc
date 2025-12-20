@@ -5,6 +5,9 @@ allprojects {
     }
 }
 
+// Override Flutter's default minSdkVersion to 26 (required by health plugin)
+extra["flutter.minSdkVersion"] = 26
+
 val newBuildDir: Directory =
     rootProject.layout.buildDirectory
         .dir("../../build")

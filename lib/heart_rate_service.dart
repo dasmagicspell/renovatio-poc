@@ -1,3 +1,5 @@
+import 'dart:async';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:health/health.dart';
 import 'health_kit_observer_service.dart';
@@ -17,12 +19,23 @@ class HeartRateService {
   // Observer state
   static bool _isObserverActive = false;
   
-  /// Check if HealthKit is available on this device
+  // Android polling timer
+  static Timer? _pollingTimer;
+  static DateTime? _lastPollTime;
+  
+  /// Check if HealthKit/Google Fit is available on this device
   static Future<bool> isHealthDataAvailable() async {
     try {
-      // For now, assume health data is available on iOS
-      // The health package will handle the actual availability check
-      return true;
+      if (Platform.isAndroid) {
+        // On Android, check if Google Fit is available by checking permissions
+        // If hasPermissions returns null, it means health data is not available
+        bool? hasPermissions = await _health.hasPermissions(_types);
+        print('Android: Health data available check: $hasPermissions');
+        return hasPermissions ?? false;
+      } else {
+        // iOS: HealthKit should be available
+        return true;
+      }
     } catch (e) {
       print('Error checking health data availability: $e');
       return false;
@@ -32,16 +45,85 @@ class HeartRateService {
   /// Request permissions to read heart rate data
   static Future<bool> requestPermissions() async {
     try {
-      // Request HealthKit permissions
-      bool requested = await _health.requestAuthorization(_types);
-      
-      if (!requested) {
-        return false;
+      if (Platform.isAndroid) {
+        // On Android, first check if we already have permissions
+        bool? hasPermissions = await _health.hasPermissions(_types);
+        print('Android: Current permission status: $hasPermissions');
+        
+        if (hasPermissions == true) {
+          print('Android: Already has permissions');
+          return true;
+        }
+        
+        // On Android, sometimes trying to read data triggers the permission dialog
+        // Try a small data fetch first to see if it prompts for permissions
+        try {
+          print('Android: Attempting to fetch data to trigger permission dialog...');
+          final now = DateTime.now();
+          final oneMinuteAgo = now.subtract(const Duration(minutes: 1));
+          
+          // This might trigger the permission dialog
+          await _health.getHealthDataFromTypes(
+            startTime: oneMinuteAgo,
+            endTime: now,
+            types: _types,
+          );
+          
+          // If we got here without error, permissions might be granted
+          bool? hasPermissionsAfter = await _health.hasPermissions(_types);
+          if (hasPermissionsAfter == true) {
+            print('Android: Permissions granted after data fetch attempt');
+            return true;
+          }
+        } catch (e) {
+          print('Android: Data fetch attempt failed (might need permissions): $e');
+        }
+        
+        // Request authorization explicitly - this should open Google Fit permission dialog
+        print('Android: Requesting health permissions explicitly...');
+        bool? requested = await _health.requestAuthorization(_types);
+        print('Android: Permission request result: $requested');
+        
+        if (requested != true) {
+          print('Android: Permission request returned false or null');
+          _onObserverError?.call(
+            'Permission request was denied or Google Fit is not available.\n\n'
+            'Please:\n'
+            '1. Ensure Google Fit is installed and your account is set up\n'
+            '2. Open Google Fit app\n'
+            '3. Go to Settings > Connected apps\n'
+            '4. Find this app and grant permissions\n'
+            '5. Try again'
+          );
+          return false;
+        }
+        
+        // Verify permissions were actually granted
+        bool? hasPermissionsAfter = await _health.hasPermissions(_types);
+        print('Android: Permission status after request: $hasPermissionsAfter');
+        
+        if (hasPermissionsAfter != true) {
+          print('Android: Permissions not granted after request');
+          _onObserverError?.call(
+            'Permissions not granted.\n\n'
+            'Please manually authorize this app in Google Fit:\n'
+            '1. Open Google Fit app\n'
+            '2. Go to Settings > Connected apps\n'
+            '3. Find this app and grant heart rate permissions\n'
+            '4. Try starting the soundscape again'
+          );
+          return false;
+        }
+        
+        return true;
+      } else {
+        // iOS: Request HealthKit permissions
+        bool requested = await _health.requestAuthorization(_types);
+        return requested;
       }
-      
-      return true;
     } catch (e) {
       print('Error requesting health permissions: $e');
+      _onObserverError?.call('Error requesting permissions: $e');
       return false;
     }
   }
@@ -145,32 +227,82 @@ class HeartRateService {
   
   // MARK: - Observer Methods
   
-  /// Initialize the HealthKit observer
+  /// Initialize the HealthKit observer (iOS) or health plugin (Android)
   static Future<void> initializeObserver() async {
-    await HealthKitObserverService.initialize();
-    
-    // Set up callbacks
-    HealthKitObserverService.setCallbacks(
-      onHeartRateDataCallback: _handleNewHeartRateData,
-      onAuthorizationGrantedCallback: _handleAuthorizationGranted,
-      onAuthorizationDeniedCallback: _handleAuthorizationDenied,
-      onObserverStartedCallback: _handleObserverStarted,
-      onObserverStoppedCallback: _handleObserverStopped,
-      onErrorCallback: _handleObserverError,
-    );
+    if (Platform.isIOS) {
+      // iOS: Use HealthKit observer
+      await HealthKitObserverService.initialize();
+      
+      // Set up callbacks
+      HealthKitObserverService.setCallbacks(
+        onHeartRateDataCallback: _handleNewHeartRateData,
+        onAuthorizationGrantedCallback: _handleAuthorizationGranted,
+        onAuthorizationDeniedCallback: _handleAuthorizationDenied,
+        onObserverStartedCallback: _handleObserverStarted,
+        onObserverStoppedCallback: _handleObserverStopped,
+        onErrorCallback: _handleObserverError,
+      );
+    } else {
+      // Android: Health plugin will be used for polling
+      print('Android: Using health plugin for heart rate monitoring');
+    }
   }
   
   /// Start the heart rate observer
   static Future<void> startObserver() async {
     if (_isObserverActive) return;
     
-    try {
-      await HealthKitObserverService.requestAuthorization();
-      await HealthKitObserverService.startObserver();
-      _isObserverActive = true;
-    } catch (e) {
-      print('Error starting observer: $e');
-      _onObserverError?.call(e.toString());
+    if (Platform.isIOS) {
+      // iOS: Use HealthKit observer
+      try {
+        await HealthKitObserverService.requestAuthorization();
+        await HealthKitObserverService.startObserver();
+        _isObserverActive = true;
+      } catch (e) {
+        print('Error starting observer: $e');
+        _onObserverError?.call(e.toString());
+      }
+    } else {
+      // Android: Use polling with health plugin
+      try {
+        print('Android: Starting heart rate observer...');
+        
+        // Check if health data is available first
+        bool isAvailable = await isHealthDataAvailable();
+        if (!isAvailable) {
+          String errorMsg = 'Google Fit is not available. Please ensure Google Fit is installed and your account is set up.';
+          print('Android: $errorMsg');
+          _onObserverError?.call(errorMsg);
+          return;
+        }
+        
+        // Request permissions
+        print('Android: Requesting permissions...');
+        bool hasPermission = await requestPermissions();
+        if (!hasPermission) {
+          String errorMsg = 'Health permissions not granted. Please grant permissions in Google Fit app settings.';
+          print('Android: $errorMsg');
+          _onObserverError?.call(errorMsg);
+          return;
+        }
+        
+        print('Android: Permissions granted, starting polling...');
+        
+        // Start polling every 5 seconds
+        _lastPollTime = DateTime.now().subtract(const Duration(minutes: 1));
+        _pollingTimer = Timer.periodic(const Duration(seconds: 5), (_) {
+          _pollHeartRateData();
+        });
+        
+        // Do an initial fetch
+        _pollHeartRateData();
+        
+        _isObserverActive = true;
+        print('Android: Heart rate polling started successfully');
+      } catch (e) {
+        print('Error starting Android observer: $e');
+        _onObserverError?.call('Error starting observer: $e');
+      }
     }
   }
   
@@ -178,22 +310,83 @@ class HeartRateService {
   static Future<void> stopObserver() async {
     if (!_isObserverActive) return;
     
-    try {
-      await HealthKitObserverService.stopObserver();
+    if (Platform.isIOS) {
+      // iOS: Stop HealthKit observer
+      try {
+        await HealthKitObserverService.stopObserver();
+        _isObserverActive = false;
+      } catch (e) {
+        print('Error stopping observer: $e');
+        _onObserverError?.call(e.toString());
+      }
+    } else {
+      // Android: Stop polling
+      _pollingTimer?.cancel();
+      _pollingTimer = null;
+      _lastPollTime = null;
       _isObserverActive = false;
-    } catch (e) {
-      print('Error stopping observer: $e');
-      _onObserverError?.call(e.toString());
+      print('Android: Heart rate polling stopped');
     }
   }
   
   /// Manually fetch heart rate data now
   static Future<void> fetchDataNow() async {
+    if (Platform.isIOS) {
+      try {
+        await HealthKitObserverService.fetchDataNow();
+      } catch (e) {
+        print('Error fetching data now: $e');
+        _onObserverError?.call(e.toString());
+      }
+    } else {
+      // Android: Manually trigger poll
+      _pollHeartRateData();
+    }
+  }
+  
+  /// Poll heart rate data (Android only)
+  static Future<void> _pollHeartRateData() async {
+    if (Platform.isIOS) return;
+    
     try {
-      await HealthKitObserverService.fetchDataNow();
+      final now = DateTime.now();
+      final startTime = _lastPollTime ?? now.subtract(const Duration(minutes: 1));
+      
+      // Fetch heart rate data since last poll
+      List<HealthDataPoint> healthData = await _health.getHealthDataFromTypes(
+        startTime: startTime,
+        endTime: now,
+        types: _types,
+      );
+      
+      // Remove duplicates
+      healthData = _health.removeDuplicates(healthData);
+      
+      if (healthData.isNotEmpty) {
+        // Convert to our HeartRateData model
+        List<HeartRateData> heartRateData = healthData
+            .where((data) => data.type == HealthDataType.HEART_RATE)
+            .map((data) => HeartRateData(
+                  value: (data.value as NumericHealthValue).numericValue.toDouble(),
+                  dateTime: data.dateFrom,
+                  unit: data.unitString,
+                ))
+            .toList();
+        
+        // Sort by date (most recent first)
+        heartRateData.sort((a, b) => b.dateTime.compareTo(a.dateTime));
+        
+        // Update last poll time
+        _lastPollTime = now;
+        
+        // Call callback with new data
+        if (heartRateData.isNotEmpty) {
+          _onNewHeartRateData?.call(heartRateData);
+        }
+      }
     } catch (e) {
-      print('Error fetching data now: $e');
-      _onObserverError?.call(e.toString());
+      print('Error polling heart rate data: $e');
+      _onObserverError?.call('Error polling heart rate data: $e');
     }
   }
   

@@ -193,4 +193,176 @@ class AudioProcessor {
       return [];
     }
   }
+  
+  /// Export merged audio tracks with duration limit and MP3 output
+  /// [inputFiles] - List of audio file paths (can be temp files or regular files)
+  /// [volumes] - Volume levels for each track (0.0-1.0)
+  /// [speeds] - Speed multipliers for each track
+  /// [pitches] - Pitch multipliers for each track (not used in this version)
+  /// [durationSeconds] - Target duration in seconds (longer tracks will be cut, shorter will loop)
+  /// [outputFileName] - Name for the output file
+  static Future<String?> exportMergedAudio({
+    required List<String> inputFiles,
+    required List<double> volumes,
+    required List<double> speeds,
+    required List<double> pitches,
+    required int durationSeconds,
+    required String outputFileName,
+  }) async {
+    if (inputFiles.isEmpty) {
+      throw Exception('No input files provided');
+    }
+    
+    if (inputFiles.length != volumes.length || 
+        inputFiles.length != speeds.length || 
+        inputFiles.length != pitches.length) {
+      throw Exception('Input files and settings arrays must have the same length');
+    }
+    
+    List<String> tempFiles = [];
+    
+    try {
+      // Copy files to temp if they're assets, otherwise use as-is
+      tempFiles = await _prepareFilesForExport(inputFiles);
+      
+      // Get downloads/documents directory for output
+      final directory = await getApplicationDocumentsDirectory();
+      final outputPath = '${directory.path}/$outputFileName';
+      
+      // Build FFmpeg command for merging with duration control
+      String command = _buildExportFFmpegCommand(
+        inputFiles: tempFiles,
+        volumes: volumes,
+        speeds: speeds,
+        pitches: pitches,
+        durationSeconds: durationSeconds,
+        outputPath: outputPath,
+      );
+      
+      print('FFmpeg export command: $command');
+      
+      // Execute FFmpeg command
+      final session = await FFmpegKit.execute(command);
+      final returnCode = await session.getReturnCode();
+      
+      if (ReturnCode.isSuccess(returnCode)) {
+        // Verify file was created
+        final file = File(outputPath);
+        if (await file.exists()) {
+          final fileSize = await file.length();
+          print('✅ Audio export successful: $outputPath (${fileSize} bytes)');
+          return outputPath;
+        } else {
+          print('❌ Export file was not created at $outputPath');
+          return null;
+        }
+      } else {
+        final logs = await session.getLogs();
+        final errorLogs = logs.map((log) => log.getMessage()).join('\n');
+        print('❌ FFmpeg export error: $errorLogs');
+        return null;
+      }
+    } catch (e) {
+      print('❌ Error exporting audio: $e');
+      return null;
+    } finally {
+      // Clean up temp files (only if we created them)
+      await _cleanupTempFiles(tempFiles);
+    }
+  }
+  
+  /// Prepare files for export - copy assets to temp, use regular files as-is
+  static Future<List<String>> _prepareFilesForExport(List<String> filePaths) async {
+    List<String> preparedFiles = [];
+    final tempDir = await getTemporaryDirectory();
+    
+    for (int i = 0; i < filePaths.length; i++) {
+      final filePath = filePaths[i];
+      final file = File(filePath);
+      
+      // If file exists and is not an asset path, use it directly
+      if (await file.exists() && !filePath.startsWith('assets/')) {
+        preparedFiles.add(filePath);
+        print('Using existing file: $filePath');
+      } else {
+        // Try to load as asset and copy to temp
+        try {
+          final byteData = await rootBundle.load(filePath);
+          final fileName = 'export_audio_$i${_getFileExtension(filePath)}';
+          final tempFile = File('${tempDir.path}/$fileName');
+          await tempFile.writeAsBytes(byteData.buffer.asUint8List());
+          preparedFiles.add(tempFile.path);
+          print('Copied asset to temp: ${tempFile.path}');
+        } catch (e) {
+          // If it's not an asset, try as regular file
+          if (await file.exists()) {
+            preparedFiles.add(filePath);
+          } else {
+            throw Exception('File not found: $filePath');
+          }
+        }
+      }
+    }
+    
+    return preparedFiles;
+  }
+  
+  /// Build FFmpeg command for export with duration control and MP3 output
+  static String _buildExportFFmpegCommand({
+    required List<String> inputFiles,
+    required List<double> volumes,
+    required List<double> speeds,
+    required List<double> pitches,
+    required int durationSeconds,
+    required String outputPath,
+  }) {
+    String command = '';
+    
+    // Add all input files
+    for (int i = 0; i < inputFiles.length; i++) {
+      command += '-i "${inputFiles[i]}" ';
+    }
+    
+    // Build filter complex
+    command += '-filter_complex "';
+    
+    // Process each track: apply volume, speed, and loop/cut to duration
+    for (int i = 0; i < inputFiles.length; i++) {
+      double volume = volumes[i].clamp(0.0, 10.0);
+      double speed = speeds[i].clamp(0.25, 4.0);
+      
+      // Build tempo filter for speed
+      String tempoFilter = '';
+      if (speed > 2.0) {
+        int tempoChains = (speed / 2.0).ceil();
+        for (int j = 0; j < tempoChains; j++) {
+          double currentTempo = j == tempoChains - 1 ? speed / (2.0 * tempoChains) : 2.0;
+          tempoFilter += 'atempo=$currentTempo,';
+        }
+      } else if (speed < 0.5) {
+        int tempoChains = (0.5 / speed).ceil();
+        for (int j = 0; j < tempoChains; j++) {
+          double currentTempo = j == tempoChains - 1 ? speed * tempoChains : 0.5;
+          tempoFilter += 'atempo=$currentTempo,';
+        }
+      } else {
+        tempoFilter = 'atempo=$speed,';
+      }
+      
+      // Apply volume and speed, then loop/cut to exact duration
+      // aloop=loop=-1:size=2e+09 loops the audio, then atrim cuts to exact duration
+      command += '[${i}:a]volume=$volume,${tempoFilter}aloop=loop=-1:size=2e+09,atrim=0:$durationSeconds[track$i];';
+    }
+    
+    // Mix all processed tracks together
+    for (int i = 0; i < inputFiles.length; i++) {
+      command += '[track$i]';
+    }
+    command += 'amix=inputs=${inputFiles.length}:duration=first:dropout_transition=2[out]" ';
+    
+    // Output settings - MP3 format
+    command += '-map "[out]" -c:a libmp3lame -b:a 192k -ar 44100 "$outputPath"';
+    
+    return command;
+  }
 }
