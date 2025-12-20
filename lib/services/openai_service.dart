@@ -2,9 +2,19 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 import '../models/session.dart';
 import '../heart_rate_service.dart';
+import 'config_service.dart';
 
 class OpenAIService {
   static const String _baseUrl = 'https://api.openai.com/v1/chat/completions';
+  
+  /// Get API key from environment variables
+  static String get _apiKey {
+    final key = ConfigService.openAIApiKey;
+    if (key == null) {
+      throw Exception('OpenAI API key not configured. Please set OPENAI_API_KEY in .env file');
+    }
+    return key;
+  }
   
   /// Get the best available model (GPT-5 if available, otherwise GPT-4)
   static Future<String> _getBestModel() async {

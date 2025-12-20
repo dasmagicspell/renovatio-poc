@@ -9,6 +9,7 @@ import 'models/session.dart';
 import 'heart_rate_service.dart';
 import 'services/openai_service.dart';
 import 'services/elevenlabs_service.dart';
+import 'services/config_service.dart';
 import 'audio_processor.dart';
 
 class SessionDetailsPage extends StatefulWidget {
@@ -87,6 +88,12 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
   /// Initialize ElevenLabsService for TTS
   void _initializeElevenLabsService() {
     try {
+      // Get API key from environment variables
+      final apiKey = ConfigService.elevenLabsApiKey;
+      if (apiKey == null) {
+        throw Exception('ElevenLabs API key not configured. Please set ELEVENLABS_API_KEY in .env file');
+      }
+      
       ElevenLabsService.initialize(apiKey);
       
       // Optionally prefetch meditation voice (recommended for faster first use)

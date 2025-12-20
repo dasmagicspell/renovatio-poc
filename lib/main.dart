@@ -1,7 +1,19 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'main_navigation.dart';
 
-void main() {
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  
+  // Load environment variables from .env file
+  try {
+    await dotenv.load(fileName: ".env");
+    print('✅ Environment variables loaded successfully');
+  } catch (e) {
+    print('⚠️ Warning: Could not load .env file: $e');
+    print('   Make sure .env file exists in the project root');
+  }
+  
   runApp(const MainApp());
 }
 
