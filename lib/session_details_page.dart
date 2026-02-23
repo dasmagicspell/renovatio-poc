@@ -2,6 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:share_plus/share_plus.dart';
+import 'package:cross_file/cross_file.dart';
+import 'package:file_picker/file_picker.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
+import 'dart:async';
 import 'dart:io';
 import 'dart:convert';
 import 'package:crypto/crypto.dart';
@@ -10,6 +15,7 @@ import 'heart_rate_service.dart';
 import 'services/openai_service.dart';
 import 'services/elevenlabs_service.dart';
 import 'services/config_service.dart';
+import 'services/binaural_audio_generator.dart';
 import 'audio_processor.dart';
 
 class SessionDetailsPage extends StatefulWidget {
@@ -38,13 +44,13 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
   bool _isPlayingBackground = false;
   bool _isPlayingAmbience = false;
   bool _isPlayingNarration = false;
-  double _volume = 0.5;
+  double _volume = 0.8; // Binaural audio - increased for better audibility
   double _speed = 1.0;
-  double _backgroundVolume = 0.3;
+  double _backgroundVolume = 0.1; // Background music - reduced to not drown out binaural
   double _backgroundSpeed = 1.0;
-  double _ambienceVolume = 0.3;
+  double _ambienceVolume = 0.1; // Ambience - reduced to not drown out binaural
   double _ambienceSpeed = 1.0;
-  double _narrationVolume = 0.7;
+  double _narrationVolume = 0.35; // Narration - reduced to balance with other tracks
   double _narrationSpeed = 1.0;
   bool _isSessionStarted = false;
   
@@ -148,43 +154,61 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
   /// Start the HealthKit observer
   Future<void> _startObserver() async {
     if (!_isObserverInitialized) {
-      print('Observer not initialized, cannot start');
+      print('⚠️ Observer not initialized, cannot start');
       return;
     }
     
     if (_isObserverActive) {
-      print('Observer already active');
+      print('ℹ️ Observer already active, skipping start');
       return;
     }
     
     try {
+      print('🚀 Starting HealthKit observer...');
       await HeartRateService.startObserver();
-      setState(() {
-        _isObserverActive = true;
-        _observerStatus = 'Active - Monitoring heart rate';
-      });
-      print('HealthKit observer started for session');
+      if (mounted) {
+        setState(() {
+          _isObserverActive = true;
+          _observerStatus = 'Active - Monitoring heart rate';
+        });
+      }
+      print('✅ HealthKit observer started for session');
     } catch (e) {
-      setState(() {
-        _observerStatus = 'Error starting: $e';
-      });
-      print('Error starting HealthKit observer: $e');
+      print('❌ Error starting HealthKit observer: $e');
+      if (mounted) {
+        setState(() {
+          _observerStatus = 'Error starting: $e';
+        });
+      }
+      // Don't throw - allow session to continue without heart rate monitoring
     }
   }
   
   /// Stop the HealthKit observer
   Future<void> _stopObserver() async {
-    if (!_isObserverActive) return;
+    if (!_isObserverActive) {
+      print('Observer not active, skipping stop');
+      return;
+    }
     
     try {
       await HeartRateService.stopObserver();
-      setState(() {
-        _isObserverActive = false;
-        _observerStatus = 'Stopped';
-      });
-      print('HealthKit observer stopped');
+      if (mounted) {
+        setState(() {
+          _isObserverActive = false;
+          _observerStatus = 'Stopped';
+        });
+      }
+      print('✅ HealthKit observer stopped');
     } catch (e) {
-      print('Error stopping HealthKit observer: $e');
+      print('❌ Error stopping HealthKit observer: $e');
+      // Even if there's an error, update the state to reflect that we tried to stop
+      if (mounted) {
+        setState(() {
+          _isObserverActive = false;
+          _observerStatus = 'Error stopping: $e';
+        });
+      }
     }
   }
   
@@ -296,37 +320,131 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
       // Use provided fileType or default to current
       final audioType = fileType ?? _currentBinauralFile;
       
-      // Construct the asset path: assets/audio/binaural/generated/{activity}/{activity}_{type}.wav
-      final assetPath = 'assets/audio/binaural/generated/$activityName/${activityName}_$audioType.wav';
+      // First, try to get the generated MP3 file from documents directory
+      String? audioFilePath = await BinauralAudioGenerator.getAudioFilePath(
+        activityName: activityName,
+        presetName: audioType,
+      );
       
-      // For large files, copy asset to temporary directory first
-      // This avoids AVFoundation errors with very large asset files
-      final tempDir = await getTemporaryDirectory();
-      final tempFile = File('${tempDir.path}/${activityName}_$audioType.wav');
-      
-      // Check if file already exists in temp (to avoid re-copying)
-      if (!await tempFile.exists()) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Loading audio file ($audioType)... This may take a moment for large files.'),
-              backgroundColor: Colors.blue,
-              duration: const Duration(seconds: 2),
-            ),
-          );
-        }
+      // Debug: Log the path we're checking
+      if (audioFilePath == null) {
+        final documentsDir = await getApplicationDocumentsDirectory();
+        final expectedPath = '${documentsDir.path}/binaural/$activityName/${activityName}_$audioType.mp3';
+        print('🔍 Checking for generated file at: $expectedPath');
         
-        // Copy asset to temporary file
-        final byteData = await rootBundle.load(assetPath);
-        await tempFile.writeAsBytes(byteData.buffer.asUint8List());
-        print('Audio file copied to: ${tempFile.path}');
+        // Check if directory exists
+        final binauralDir = Directory('${documentsDir.path}/binaural/$activityName');
+        if (await binauralDir.exists()) {
+          print('📁 Binaural directory exists, listing files:');
+          final files = await binauralDir.list().toList();
+          for (var file in files) {
+            print('   - ${file.path}');
+          }
+        } else {
+          print('❌ Binaural directory does not exist: ${binauralDir.path}');
+        }
+      }
+      
+      // If generated file doesn't exist, fall back to assets (for backward compatibility)
+      if (audioFilePath == null) {
+        print('Generated audio file not found, trying assets...');
+        // Construct the asset path: assets/audio/binaural/generated/{activity}/{activity}_{type}.mp3
+        // Note: activityName is already lowercase from widget.session.activity.toLowerCase()
+        final assetPath = 'assets/audio/binaural/generated/$activityName/${activityName}_$audioType.mp3';
+        print('🔍 Attempting to load asset from: $assetPath');
+        
+        // For large files, copy asset to temporary directory first
+        // This avoids AVFoundation errors with very large asset files
+        final tempDir = await getTemporaryDirectory();
+        // Sanitize activity name for temp file (replace spaces with underscores)
+        final sanitizedActivityName = activityName.replaceAll(' ', '_');
+        final tempFile = File('${tempDir.path}/${sanitizedActivityName}_$audioType.mp3');
+        
+        // Check if file already exists in temp (to avoid re-copying)
+        if (!await tempFile.exists()) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('Loading audio file ($audioType)... This may take a moment for large files.'),
+                backgroundColor: Colors.blue,
+                duration: const Duration(seconds: 2),
+              ),
+            );
+          }
+          
+          try {
+            // Copy asset to temporary file
+            print('📦 Loading asset: $assetPath');
+            final byteData = await rootBundle.load(assetPath);
+            print('✅ Asset loaded successfully (${byteData.lengthInBytes} bytes)');
+            await tempFile.writeAsBytes(byteData.buffer.asUint8List());
+            print('✅ Audio file copied to: ${tempFile.path}');
+            audioFilePath = tempFile.path;
+          } catch (assetError) {
+            print('❌ Error loading from assets: $assetError');
+            print('   Tried path: $assetPath');
+            print('   Activity name: "$activityName"');
+            print('   Audio type: $audioType');
+            
+            // Try to provide more helpful error information
+            String errorMessage = 'Binaural audio not available';
+            if (assetError.toString().contains('Unable to load asset')) {
+              errorMessage = 'Audio file not found in assets';
+              print('   💡 Hint: Make sure the file exists at: $assetPath');
+              print('   💡 Hint: Check that pubspec.yaml includes: assets/audio/binaural/generated/');
+            } else if (assetError.toString().contains('space') || assetError.toString().contains(' ')) {
+              errorMessage = 'Issue with file path (spaces in name)';
+              print('   💡 Hint: Directory or file name contains spaces');
+            }
+            
+            // Binaural audio is optional - continue without it but inform the user
+            setState(() {
+              _isLoading = false;
+              _audioPlayer = null; // Clear player since we couldn't load audio
+            });
+            
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        '$errorMessage for "$activityName"',
+                        style: const TextStyle(fontWeight: FontWeight.bold),
+                      ),
+                      const SizedBox(height: 4),
+                      const Text(
+                        'Generate audio files in the Audio Generation page to enable binaural beats.',
+                        style: TextStyle(fontSize: 12),
+                      ),
+                    ],
+                  ),
+                  backgroundColor: Colors.orange,
+                  duration: const Duration(seconds: 6),
+                  action: SnackBarAction(
+                    label: 'Dismiss',
+                    textColor: Colors.white,
+                    onPressed: () {},
+                  ),
+                ),
+              );
+            }
+            print('⚠️ Continuing session without binaural audio');
+            return; // Exit early - session can continue without binaural audio
+          }
+        } else {
+          print('✅ Using existing temp file: ${tempFile.path}');
+          audioFilePath = tempFile.path;
+        }
       } else {
-        print('Using existing temp file: ${tempFile.path}');
+        print('✅ Using generated audio file: $audioFilePath');
       }
       
       // Create and initialize audio player with file path
       final player = AudioPlayer();
-      await player.setFilePath(tempFile.path);
+      await player.setFilePath(audioFilePath!);
       await player.setLoopMode(LoopMode.one);
       await player.setVolume(_volume);
       await player.setSpeed(_speed);
@@ -348,7 +466,7 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
         _audioPlayer = player;
         _isLoading = false;
         _currentBinauralFile = audioType;
-        _binauralAudioPath = tempFile.path; // Store path for export
+        _binauralAudioPath = audioFilePath; // Store path for export
       });
       
       // Dispose old player after state update
@@ -363,9 +481,11 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
     } catch (e) {
       setState(() {
         _isLoading = false;
+        _audioPlayer = null; // Clear player on error
       });
       
-      if (mounted) {
+      // Only show error if it's not already handled (e.g., file not found is handled above)
+      if (mounted && !e.toString().contains('Binaural audio file not found')) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('Error loading audio: $e'),
@@ -826,18 +946,24 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
   }
   
   Future<void> _startSession() async {
+    // Check if this is a new session or a resume
+    final isResuming = _isSessionStarted && _sessionStartTime != null;
+    
     // Update state immediately so UI shows pause/stop buttons right away
     setState(() {
       _isSessionStarted = true;
-      _sessionStartTime = DateTime.now();
-      _aiAnalysis = null; // Reset analysis when starting new soundscape
-      _aiAnalysisError = null;
+      // Only set start time if this is a new session, not a resume
+      if (!isResuming) {
+        _sessionStartTime = DateTime.now();
+        _aiAnalysis = null; // Reset analysis when starting new soundscape
+        _aiAnalysisError = null;
+      }
     });
     
     try {
-      // TODO: Uncomment this when HealthKit observer is working
-      // Start HealthKit observer
-      // await _startObserver();
+      // Start HealthKit observer to monitor heart rate during the session
+      // (This will check if already active and skip if so)
+      await _startObserver();
       
       // Start all available audio players simultaneously
       final futures = <Future>[];
@@ -860,10 +986,10 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
       
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Soundscape started'),
+          SnackBar(
+            content: Text(isResuming ? 'Soundscape resumed' : 'Soundscape started'),
             backgroundColor: Colors.green,
-            duration: Duration(seconds: 2),
+            duration: const Duration(seconds: 2),
           ),
         );
       }
@@ -871,12 +997,15 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
       // If there's an error, revert the soundscape started state
       if (mounted) {
         setState(() {
-          _isSessionStarted = false;
-          _sessionStartTime = null;
+          // Only reset if this was a new session, not a resume
+          if (!isResuming) {
+            _isSessionStarted = false;
+            _sessionStartTime = null;
+          }
         });
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Error starting soundscape: $e'),
+            content: Text('Error ${isResuming ? 'resuming' : 'starting'} soundscape: $e'),
             backgroundColor: Colors.red,
           ),
         );
@@ -974,7 +1103,11 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
     }
   }
   
-  /// Export all audio tracks as a single merged MP3 file
+  /// Export all audio tracks as a single merged MP3 file.
+  /// File is saved to the app's documents directory (sandboxed). On a real device:
+  /// - iOS: app container Documents (not visible in Files unless shared)
+  /// - Android: app internal storage
+  /// After export we open the share sheet so the user can save to Files / share.
   Future<void> _exportSoundscape() async {
     // Check if at least one audio is loaded
     if (_binauralAudioPath == null && 
@@ -1092,26 +1225,78 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
         print('⏱️ Duration: ${widget.session.durationMinutes} minutes');
         
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    '✅ Soundscape exported successfully!',
-                    style: TextStyle(fontWeight: FontWeight.bold),
+          final isDesktop = !kIsWeb &&
+              (Platform.isMacOS || Platform.isWindows || Platform.isLinux);
+
+          if (isDesktop) {
+            final savedPath = await FilePicker.platform.saveFile(
+              dialogTitle: 'Save Soundscape',
+              fileName: outputFileName,
+              type: FileType.custom,
+              allowedExtensions: ['mp3'],
+            );
+
+            if (savedPath != null) {
+              await File(outputPath).copy(savedPath);
+              if (mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'Soundscape saved successfully!',
+                          style: TextStyle(fontWeight: FontWeight.bold),
+                        ),
+                        const SizedBox(height: 4),
+                        Text('Location: $savedPath'),
+                        Text('Size: $fileSizeMB MB'),
+                      ],
+                    ),
+                    backgroundColor: Colors.green,
+                    duration: const Duration(seconds: 5),
                   ),
-                  const SizedBox(height: 4),
-                  Text('File: ${outputPath.split('/').last}'),
-                  Text('Size: $fileSizeMB MB'),
-                  Text('Location: $outputPath'),
-                ],
+                );
+              }
+            }
+          } else {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Soundscape exported successfully!',
+                      style: TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                    const SizedBox(height: 4),
+                    Text('File: ${outputPath.split('/').last}'),
+                    Text('Size: $fileSizeMB MB'),
+                    const SizedBox(height: 4),
+                    const Text(
+                      'Saved in app storage. Use Share to save to Files or share.',
+                      style: TextStyle(fontSize: 12),
+                    ),
+                  ],
+                ),
+                backgroundColor: Colors.green,
+                duration: const Duration(seconds: 5),
               ),
-              backgroundColor: Colors.green,
-              duration: const Duration(seconds: 5),
-            ),
-          );
+            );
+            unawaited(Future(() async {
+              try {
+                await Share.shareXFiles(
+                  [XFile(outputPath)],
+                  text: 'Soundscape: ${widget.session.name}',
+                  subject: 'Soundscape export',
+                );
+              } catch (shareError) {
+                print('Share sheet error (optional): $shareError');
+              }
+            }));
+          }
         }
       } else {
         throw Exception('Failed to export soundscape');

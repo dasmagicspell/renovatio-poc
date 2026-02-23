@@ -5,9 +5,31 @@ import 'package:path_provider/path_provider.dart';
 import '../models/binaural_preset.dart';
 
 class BinauralAudioGenerator {
-  static const int _durationSeconds = 2700; // 45 minutes
+  static const int _durationSeconds = 2700; // 45 minutes (default for activities not in short list)
+  static const int _shortDurationSeconds = 30; // 30 seconds for loopable activities
   static const int _sampleRate = 44100;
-  static const String _audioFormat = 'wav';
+  static const String _audioFormat = 'mp3';
+  
+  // Activities that should use 30-second loopable files (all activities)
+  static const Set<String> _shortDurationActivities = {
+    'relax',
+    'sleep',
+    'exercise',
+    'meditate',
+    'focus',
+    'study',
+    'anxiety relief',
+    'energy boost',
+  };
+  
+  /// Get duration for a specific activity
+  static int _getDurationForActivity(String activityName) {
+    final activityNameLower = activityName.toLowerCase();
+    if (_shortDurationActivities.contains(activityNameLower)) {
+      return _shortDurationSeconds;
+    }
+    return _durationSeconds;
+  }
   
   /// Generate binaural audio files for an activity
   /// Returns a map of preset names to file paths
@@ -18,6 +40,7 @@ class BinauralAudioGenerator {
   }) async {
     final results = <String, String>{};
     final activityNameLower = activityName.toLowerCase();
+    final duration = _getDurationForActivity(activityName);
     
     // Get documents directory
     final documentsDir = await getApplicationDocumentsDirectory();
@@ -43,6 +66,7 @@ class BinauralAudioGenerator {
           leftFrequency: preset.leftFrequency,
           rightFrequency: preset.rightFrequency,
           outputPath: outputPath,
+          durationSeconds: duration,
         );
         
         if (success) {
@@ -61,29 +85,34 @@ class BinauralAudioGenerator {
   }
   
   /// Generate a single binaural audio file using FFmpeg
+  /// For seamless looping, the duration should be an exact number of cycles
+  /// Sine waves naturally loop seamlessly if the duration is a multiple of the period
   static Future<bool> _generateBinauralAudio({
     required int leftFrequency,
     required int rightFrequency,
     required String outputPath,
+    required int durationSeconds,
   }) async {
     try {
       // FFmpeg command to generate binaural beats:
       // - Generate two sine waves (left and right channels)
       // - Merge them into a stereo audio file
-      // - Set sample rate to 44100 Hz, 16-bit, WAV format
+      // - Encode as MP3: -f mp3 forces the muxer; -c:a libmp3lame (needs ffmpeg_kit with GPL/audio)
+      // - For seamless looping, we ensure the sine waves complete full cycles
       
       final command = 
-          '-f lavfi -i "sine=frequency=$leftFrequency:duration=$_durationSeconds:sample_rate=$_sampleRate" '
-          '-f lavfi -i "sine=frequency=$rightFrequency:duration=$_durationSeconds:sample_rate=$_sampleRate" '
+          '-f lavfi -i "sine=frequency=$leftFrequency:duration=$durationSeconds:sample_rate=$_sampleRate" '
+          '-f lavfi -i "sine=frequency=$rightFrequency:duration=$durationSeconds:sample_rate=$_sampleRate" '
           '-filter_complex "[0:a][1:a]amerge=inputs=2,channelmap=0|1[out]" '
           '-map "[out]" '
           '-ar $_sampleRate '
           '-ac 2 '
-          '-sample_fmt s16 '
+          '-c:a libmp3lame -b:a 192k -f mp3 '
           '-y '
           '"$outputPath"';
       
       print('FFmpeg command: $command');
+      print('Generating ${durationSeconds}s audio file (will loop seamlessly)');
       
       final session = await FFmpegKit.execute(command);
       final returnCode = await session.getReturnCode();
@@ -93,7 +122,8 @@ class BinauralAudioGenerator {
         final file = File(outputPath);
         if (await file.exists()) {
           final fileSize = await file.length();
-          print('Audio file generated successfully: $outputPath (${fileSize} bytes)');
+          final fileSizeMB = (fileSize / (1024 * 1024)).toStringAsFixed(2);
+          print('Audio file generated successfully: $outputPath (${fileSizeMB} MB)');
           return true;
         } else {
           print('Error: File was not created at $outputPath');

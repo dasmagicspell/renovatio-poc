@@ -98,6 +98,7 @@ class ElevenLabsService {
         final voices = (response.data['voices'] as List)
             .map((v) => ElevenLabsVoice.fromJson(v))
             .toList();
+            
         return voices;
       } else {
         throw Exception('Failed to get voices: ${response.statusMessage}');
@@ -316,11 +317,7 @@ class ElevenLabsService {
   /// List of voice names that are suitable for meditation/relaxation
   /// These are calm, soothing voices perfect for affirmations and guided meditation
   static const List<String> _meditationVoiceNames = [
-    'Nicole',  // Legacy voice (deprecated Feb 2026, routes to Clara)
-    'Clara',   // Replacement for Nicole
-    'Rachel',  // Calm, soothing
-    'Bella',   // Soft, warm
-    'Antoni',  // Deep, calm male
+    'Kristen - Calm, Comforting, Meditative',
   ];
   
   /// Get a meditation-style voice ID (calm, soothing voice suitable for affirmations)
@@ -388,6 +385,7 @@ class ElevenLabsService {
       'Rachel': '21m00Tcm4TlvDq8ikWAM', // Calm, soothing
       'Bella': 'EXAVITQu4vr4xnSDxMaL', // Soft, warm
       'Antoni': 'ErXwobaYiN019PkySvjV', // Deep, calm male
+      'Kristen - Calm, Comforting, Meditative': '21m00Tcm4TlvDq8ikWAM', // Calm, soothing
       // Other voices
       'Domi': 'AZnzlk1XvdvUeBnXmlld', // Strong, confident
       'Elli': 'MF3mGyEYCl7XYWbV9V6O', // Young, cheerful

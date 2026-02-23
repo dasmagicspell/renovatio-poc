@@ -1,5 +1,7 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:uuid/uuid.dart';
+import 'package:just_audio/just_audio.dart';
 import '../models/session.dart';
 import '../services/session_storage_service.dart';
 import 'session_details_page.dart';
@@ -21,16 +23,26 @@ class _NewSessionPageState extends State<NewSessionPage> {
   String? _selectedBackgroundMusic;
   String? _selectedBackgroundAmbience;
   
+  // Audio player for background music preview
+  AudioPlayer? _backgroundMusicPreviewPlayer;
+  bool _isPlayingBackgroundMusic = false;
+  StreamSubscription? _playerStateSubscription;
+  
+  // Audio player for background ambience preview
+  AudioPlayer? _backgroundAmbiencePreviewPlayer;
+  bool _isPlayingBackgroundAmbience = false;
+  StreamSubscription? _ambienceStateSubscription;
+  
   // Activity options with their corresponding frequency bands
   final Map<String, String> _activityFrequencies = {
-    'Relax': 'Alpha',
-    'Sleep': 'Delta',
-    'Exercise': 'Beta',
-    'Meditate': 'Theta',
-    'Focus': 'Beta',
-    'Study': 'Alpha',
-    'Anxiety Relief': 'Theta',
-    'Energy Boost': 'Gamma',
+    'Relax': 'Alpha 10Hz',
+    'Sleep': 'Delta 2Hz',
+    'Exercise': 'Beta 20Hz',
+    'Meditate': 'Theta 6Hz',
+    'Focus': 'Beta 20Hz',
+    'Study': 'Alpha 10Hz',
+    'Anxiety Relief': 'Theta 6Hz',
+    'Energy Boost': 'Gamma 40Hz',
   };
   
   List<String> get _activities => _activityFrequencies.keys.toList();
@@ -45,7 +57,7 @@ class _NewSessionPageState extends State<NewSessionPage> {
     'Classical Music',
     'Piano Instrumental',
     'Acoustic Guitar',
-    'Meditation Music',
+    /*'Meditation Music',
     'Zen Music',
     'Chillout Music',
     'Lounge Music',
@@ -54,7 +66,7 @@ class _NewSessionPageState extends State<NewSessionPage> {
     'White Noise',
     'Brown Noise',
     'Pink Noise',
-    'Ambient Electronic',
+    'Ambient Electronic',*/
   ];
   
   // Background ambience options
@@ -64,7 +76,7 @@ class _NewSessionPageState extends State<NewSessionPage> {
     'Ocean Waves',
     'Rain',
     'Birds Chirping',
-    'Crackling Fire',
+    /*'Crackling Fire',
     'Waterfall',
     'Wind',
     'Desert Wind',
@@ -72,14 +84,183 @@ class _NewSessionPageState extends State<NewSessionPage> {
     'Mountain Stream',
     'Night Sounds',
     'Zen Garden',
-    'Thunderstorm',
+    'Thunderstorm',*/
   ];
   
   @override
   void dispose() {
     _sessionNameController.dispose();
     _narrationTextController.dispose();
+    _playerStateSubscription?.cancel();
+    _backgroundMusicPreviewPlayer?.dispose();
+    _ambienceStateSubscription?.cancel();
+    _backgroundAmbiencePreviewPlayer?.dispose();
     super.dispose();
+  }
+  
+  /// Convert background music name to asset filename
+  /// Example: "Classical Music" -> "classical-music.mp3"
+  String _getBackgroundMusicFilename(String musicName) {
+    if (musicName == 'None') return '';
+    return '${musicName.toLowerCase().replaceAll(' ', '-')}.mp3';
+  }
+  
+  /// Convert background ambience name to asset filename
+  /// Example: "Ocean Waves" -> "ocean-waves.mp3"
+  String _getBackgroundAmbienceFilename(String ambienceName) {
+    if (ambienceName == 'None') return '';
+    return '${ambienceName.toLowerCase().replaceAll(' ', '-')}.mp3';
+  }
+  
+  /// Play preview of selected background music
+  Future<void> _playBackgroundMusicPreview() async {
+    if (_selectedBackgroundMusic == null || 
+        _selectedBackgroundMusic == 'None' || 
+        _isPlayingBackgroundMusic) {
+      return;
+    }
+    
+    try {
+      // Stop any currently playing audio
+      await _stopBackgroundMusicPreview();
+      
+      // Stop any existing player and cancel subscription
+      await _stopBackgroundMusicPreview();
+      
+      // Create new player
+      _backgroundMusicPreviewPlayer = AudioPlayer();
+      
+      // Listen to player state changes
+      _playerStateSubscription = _backgroundMusicPreviewPlayer!.playerStateStream.listen((state) {
+        if (mounted) {
+          setState(() {
+            _isPlayingBackgroundMusic = state.playing;
+          });
+        }
+      });
+      
+      // Get filename
+      final filename = _getBackgroundMusicFilename(_selectedBackgroundMusic!);
+      final assetPath = 'assets/audio/background-music/$filename';
+      
+      // Load and play
+      await _backgroundMusicPreviewPlayer!.setAsset(assetPath);
+      await _backgroundMusicPreviewPlayer!.play();
+      
+      // Update state immediately
+      if (mounted) {
+        setState(() {
+          _isPlayingBackgroundMusic = true;
+        });
+      }
+    } catch (e) {
+      print('Error playing background music preview: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error playing preview: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+  
+  /// Stop background music preview
+  Future<void> _stopBackgroundMusicPreview() async {
+    // Cancel subscription
+    await _playerStateSubscription?.cancel();
+    _playerStateSubscription = null;
+    
+    if (_backgroundMusicPreviewPlayer != null) {
+      try {
+        await _backgroundMusicPreviewPlayer!.stop();
+        await _backgroundMusicPreviewPlayer!.dispose();
+        _backgroundMusicPreviewPlayer = null;
+      } catch (e) {
+        print('Error stopping background music preview: $e');
+      }
+    }
+    
+    if (mounted) {
+      setState(() {
+        _isPlayingBackgroundMusic = false;
+      });
+    }
+  }
+  
+  /// Play preview of selected background ambience
+  Future<void> _playBackgroundAmbiencePreview() async {
+    if (_selectedBackgroundAmbience == null || 
+        _selectedBackgroundAmbience == 'None' || 
+        _isPlayingBackgroundAmbience) {
+      return;
+    }
+    
+    try {
+      // Stop any existing player and cancel subscription
+      await _stopBackgroundAmbiencePreview();
+      
+      // Create new player
+      _backgroundAmbiencePreviewPlayer = AudioPlayer();
+      
+      // Listen to player state changes
+      _ambienceStateSubscription = _backgroundAmbiencePreviewPlayer!.playerStateStream.listen((state) {
+        if (mounted) {
+          setState(() {
+            _isPlayingBackgroundAmbience = state.playing;
+          });
+        }
+      });
+      
+      // Get filename
+      final filename = _getBackgroundAmbienceFilename(_selectedBackgroundAmbience!);
+      final assetPath = 'assets/audio/background-audio/$filename';
+      
+      // Load and play
+      await _backgroundAmbiencePreviewPlayer!.setAsset(assetPath);
+      await _backgroundAmbiencePreviewPlayer!.play();
+      
+      // Update state immediately
+      if (mounted) {
+        setState(() {
+          _isPlayingBackgroundAmbience = true;
+        });
+      }
+    } catch (e) {
+      print('Error playing background ambience preview: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error playing preview: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+  
+  /// Stop background ambience preview
+  Future<void> _stopBackgroundAmbiencePreview() async {
+    // Cancel subscription
+    await _ambienceStateSubscription?.cancel();
+    _ambienceStateSubscription = null;
+    
+    if (_backgroundAmbiencePreviewPlayer != null) {
+      try {
+        await _backgroundAmbiencePreviewPlayer!.stop();
+        await _backgroundAmbiencePreviewPlayer!.dispose();
+        _backgroundAmbiencePreviewPlayer = null;
+      } catch (e) {
+        print('Error stopping background ambience preview: $e');
+      }
+    }
+    
+    if (mounted) {
+      setState(() {
+        _isPlayingBackgroundAmbience = false;
+      });
+    }
   }
   
   Future<void> _createSession() async {
@@ -364,46 +545,89 @@ class _NewSessionPageState extends State<NewSessionPage> {
               // Background Music Field
               _buildSectionTitle('Background Music'),
               const SizedBox(height: 8),
-              DropdownButtonFormField<String>(
-                value: _selectedBackgroundMusic,
-                decoration: InputDecoration(
-                  hintText: 'Select background music',
-                  hintStyle: TextStyle(color: Colors.white54),
-                  filled: true,
-                  fillColor: const Color(0xFF2d2d2d),
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(8),
-                    borderSide: BorderSide(color: Colors.grey[700]!),
+              Row(
+                children: [
+                  Expanded(
+                    child: DropdownButtonFormField<String>(
+                      value: _selectedBackgroundMusic,
+                      decoration: InputDecoration(
+                        hintText: 'Select background music',
+                        hintStyle: TextStyle(color: Colors.white54),
+                        filled: true,
+                        fillColor: const Color(0xFF2d2d2d),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(8),
+                          borderSide: BorderSide(color: Colors.grey[700]!),
+                        ),
+                        enabledBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(8),
+                          borderSide: BorderSide(color: Colors.grey[700]!),
+                        ),
+                        focusedBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(8),
+                          borderSide: const BorderSide(color: Colors.blue, width: 2),
+                        ),
+                      ),
+                      dropdownColor: const Color(0xFF2d2d2d),
+                      style: const TextStyle(color: Colors.white),
+                      icon: const Icon(Icons.arrow_drop_down, color: Colors.white),
+                      items: _backgroundMusicOptions.map((music) {
+                        return DropdownMenuItem<String>(
+                          value: music,
+                          child: Text(music),
+                        );
+                      }).toList(),
+                      onChanged: (value) async {
+                        // Stop current audio if playing
+                        if (_isPlayingBackgroundMusic) {
+                          await _stopBackgroundMusicPreview();
+                        }
+                        setState(() {
+                          _selectedBackgroundMusic = value;
+                        });
+                      },
+                      validator: (value) {
+                        if (value == null || value.isEmpty) {
+                          return 'Please select background music';
+                        }
+                        return null;
+                      },
+                    ),
                   ),
-                  enabledBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(8),
-                    borderSide: BorderSide(color: Colors.grey[700]!),
+                  const SizedBox(width: 8),
+                  IconButton(
+                    onPressed: (_selectedBackgroundMusic != null && 
+                               _selectedBackgroundMusic != 'None')
+                        ? (_isPlayingBackgroundMusic 
+                            ? _stopBackgroundMusicPreview 
+                            : _playBackgroundMusicPreview)
+                        : null,
+                    icon: Icon(
+                      _isPlayingBackgroundMusic ? Icons.stop : Icons.play_arrow,
+                      color: Colors.white,
+                    ),
+                    style: IconButton.styleFrom(
+                      backgroundColor: (_selectedBackgroundMusic != null && 
+                                     _selectedBackgroundMusic != 'None')
+                          ? (_isPlayingBackgroundMusic 
+                              ? Colors.red 
+                              : Colors.green)
+                          : const Color(0xFF2d2d2d),
+                      padding: const EdgeInsets.all(12),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8),
+                        side: BorderSide(
+                          color: (_selectedBackgroundMusic != null && 
+                                 _selectedBackgroundMusic != 'None')
+                              ? (_isPlayingBackgroundMusic 
+                                  ? Colors.red.shade700 
+                                  : Colors.green.shade700)
+                              : Colors.grey[700]!,
+                        ),
+                      ),
+                    ),
                   ),
-                  focusedBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(8),
-                    borderSide: const BorderSide(color: Colors.blue, width: 2),
-                  ),
-                ),
-                dropdownColor: const Color(0xFF2d2d2d),
-                style: const TextStyle(color: Colors.white),
-                icon: const Icon(Icons.arrow_drop_down, color: Colors.white),
-                items: _backgroundMusicOptions.map((music) {
-                  return DropdownMenuItem<String>(
-                    value: music,
-                    child: Text(music),
-                  );
-                }).toList(),
-                onChanged: (value) {
-                  setState(() {
-                    _selectedBackgroundMusic = value;
-                  });
-                },
-                validator: (value) {
-                  if (value == null || value.isEmpty) {
-                    return 'Please select background music';
-                  }
-                  return null;
-                },
+                ],
               ),
               
               const SizedBox(height: 24),
@@ -411,40 +635,83 @@ class _NewSessionPageState extends State<NewSessionPage> {
               // Background Ambience Field
               _buildSectionTitle('Background Ambience'),
               const SizedBox(height: 8),
-              DropdownButtonFormField<String>(
-                value: _selectedBackgroundAmbience,
-                decoration: InputDecoration(
-                  hintText: 'Select background ambience',
-                  hintStyle: TextStyle(color: Colors.white54),
-                  filled: true,
-                  fillColor: const Color(0xFF2d2d2d),
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(8),
-                    borderSide: BorderSide(color: Colors.grey[700]!),
+              Row(
+                children: [
+                  Expanded(
+                    child: DropdownButtonFormField<String>(
+                      value: _selectedBackgroundAmbience,
+                      decoration: InputDecoration(
+                        hintText: 'Select background ambience',
+                        hintStyle: TextStyle(color: Colors.white54),
+                        filled: true,
+                        fillColor: const Color(0xFF2d2d2d),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(8),
+                          borderSide: BorderSide(color: Colors.grey[700]!),
+                        ),
+                        enabledBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(8),
+                          borderSide: BorderSide(color: Colors.grey[700]!),
+                        ),
+                        focusedBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(8),
+                          borderSide: const BorderSide(color: Colors.blue, width: 2),
+                        ),
+                      ),
+                      dropdownColor: const Color(0xFF2d2d2d),
+                      style: const TextStyle(color: Colors.white),
+                      icon: const Icon(Icons.arrow_drop_down, color: Colors.white),
+                      items: _backgroundAmbienceOptions.map((ambience) {
+                        return DropdownMenuItem<String>(
+                          value: ambience,
+                          child: Text(ambience),
+                        );
+                      }).toList(),
+                      onChanged: (value) async {
+                        // Stop current audio if playing
+                        if (_isPlayingBackgroundAmbience) {
+                          await _stopBackgroundAmbiencePreview();
+                        }
+                        setState(() {
+                          _selectedBackgroundAmbience = value;
+                        });
+                      },
+                    ),
                   ),
-                  enabledBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(8),
-                    borderSide: BorderSide(color: Colors.grey[700]!),
+                  const SizedBox(width: 8),
+                  IconButton(
+                    onPressed: (_selectedBackgroundAmbience != null && 
+                               _selectedBackgroundAmbience != 'None')
+                        ? (_isPlayingBackgroundAmbience 
+                            ? _stopBackgroundAmbiencePreview 
+                            : _playBackgroundAmbiencePreview)
+                        : null,
+                    icon: Icon(
+                      _isPlayingBackgroundAmbience ? Icons.stop : Icons.play_arrow,
+                      color: Colors.white,
+                    ),
+                    style: IconButton.styleFrom(
+                      backgroundColor: (_selectedBackgroundAmbience != null && 
+                                     _selectedBackgroundAmbience != 'None')
+                          ? (_isPlayingBackgroundAmbience 
+                              ? Colors.red 
+                              : Colors.green)
+                          : const Color(0xFF2d2d2d),
+                      padding: const EdgeInsets.all(12),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8),
+                        side: BorderSide(
+                          color: (_selectedBackgroundAmbience != null && 
+                                 _selectedBackgroundAmbience != 'None')
+                              ? (_isPlayingBackgroundAmbience 
+                                  ? Colors.red.shade700 
+                                  : Colors.green.shade700)
+                              : Colors.grey[700]!,
+                        ),
+                      ),
+                    ),
                   ),
-                  focusedBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(8),
-                    borderSide: const BorderSide(color: Colors.blue, width: 2),
-                  ),
-                ),
-                dropdownColor: const Color(0xFF2d2d2d),
-                style: const TextStyle(color: Colors.white),
-                icon: const Icon(Icons.arrow_drop_down, color: Colors.white),
-                items: _backgroundAmbienceOptions.map((ambience) {
-                  return DropdownMenuItem<String>(
-                    value: ambience,
-                    child: Text(ambience),
-                  );
-                }).toList(),
-                onChanged: (value) {
-                  setState(() {
-                    _selectedBackgroundAmbience = value;
-                  });
-                },
+                ],
               ),
               
               const SizedBox(height: 24),

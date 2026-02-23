@@ -225,7 +225,10 @@ class AudioProcessor {
       // Copy files to temp if they're assets, otherwise use as-is
       tempFiles = await _prepareFilesForExport(inputFiles);
       
-      // Get downloads/documents directory for output
+      // Output goes to app's documents directory (sandboxed, not user-browsable by default):
+      // - iOS: /var/mobile/Containers/Data/Application/{UUID}/Documents/
+      // - Android: /data/data/{package}/app_flutter/ or similar app-specific path
+      // Use Share after export so the user can save to Files / Downloads or share elsewhere.
       final directory = await getApplicationDocumentsDirectory();
       final outputPath = '${directory.path}/$outputFileName';
       

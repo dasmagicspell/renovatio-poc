@@ -1,7 +1,7 @@
 name: renovatio
-description: "A new Flutter project."
+description: "Renovatio - Your AI-Powered Wellness Companion"
 publish_to: 'none'
-version: 0.1.0
+version: 0.1.1
 
 environment:
   sdk: ^3.9.0
@@ -21,6 +21,8 @@ dependencies:
   uuid: ^4.0.0
   crypto: ^3.0.3
   flutter_dotenv: ^5.1.0
+  share_plus: ^10.1.4
+  file_picker: ^8.0.0
 
 dev_dependencies:
   flutter_test:
@@ -31,16 +33,19 @@ flutter:
   uses-material-design: true
   assets:
     - .env
-    - assets/audio/
     - assets/audio/background-audio/
-    - assets/audio/background-audio/forest.mp3
-    - assets/audio/background-audio/forest.mp4
-    - assets/audio/background-audio/ocean-waves.mp4
     - assets/audio/background-music/
     - assets/audio/binaural/
     - assets/audio/binaural/generated/
+    # Explicitly include subdirectories to ensure directories with spaces are included
     - assets/audio/binaural/generated/relax/
     - assets/audio/binaural/generated/sleep/
+    - assets/audio/binaural/generated/exercise/
+    - assets/audio/binaural/generated/meditate/
+    - assets/audio/binaural/generated/focus/
+    - assets/audio/binaural/generated/study/
+    - assets/audio/binaural/generated/anxiety relief/
+    - assets/audio/binaural/generated/energy boost/
     - assets/audio/narration/
     - assets/json/
     - lib/schemas/
