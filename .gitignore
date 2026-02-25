@@ -90,7 +90,4 @@ Desktop.ini
 coverage/
 *.lcov
 
-assets/audio/binaural/generated
-assets/audio/background-music
-assets/audio/background-audio
 assets/audio/narration
