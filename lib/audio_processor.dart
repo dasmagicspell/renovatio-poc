@@ -1,8 +1,7 @@
 import 'dart:io';
-import 'package:ffmpeg_kit_flutter_new/ffmpeg_kit.dart';
-import 'package:ffmpeg_kit_flutter_new/return_code.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:flutter/services.dart';
+import 'services/ffmpeg_executor.dart';
 
 class AudioProcessor {
   static Future<String?> mergeAudioTracks({
@@ -34,15 +33,13 @@ class AudioProcessor {
       print('FFmpeg command: $command');
       
       // Execute FFmpeg command
-      final session = await FFmpegKit.execute(command);
-      final returnCode = await session.getReturnCode();
-      
-      if (ReturnCode.isSuccess(returnCode)) {
+      final result = await FFmpegExecutor.execute(command);
+
+      if (result.isSuccess) {
         print('Audio merge successful: $outputPath');
         return outputPath;
       } else {
-        final logs = await session.getLogs();
-        print('FFmpeg error: ${logs.map((log) => log.getMessage()).join('\n')}');
+        print('FFmpeg error: ${result.output}');
         return null;
       }
     } catch (e) {
@@ -245,10 +242,9 @@ class AudioProcessor {
       print('FFmpeg export command: $command');
       
       // Execute FFmpeg command
-      final session = await FFmpegKit.execute(command);
-      final returnCode = await session.getReturnCode();
-      
-      if (ReturnCode.isSuccess(returnCode)) {
+      final result = await FFmpegExecutor.execute(command);
+
+      if (result.isSuccess) {
         // Verify file was created
         final file = File(outputPath);
         if (await file.exists()) {
@@ -260,9 +256,7 @@ class AudioProcessor {
           return null;
         }
       } else {
-        final logs = await session.getLogs();
-        final errorLogs = logs.map((log) => log.getMessage()).join('\n');
-        print('❌ FFmpeg export error: $errorLogs');
+        print('❌ FFmpeg export error: ${result.output}');
         return null;
       }
     } catch (e) {

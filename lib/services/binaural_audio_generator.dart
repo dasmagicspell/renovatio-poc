@@ -1,8 +1,7 @@
 import 'dart:io';
-import 'package:ffmpeg_kit_flutter_new/ffmpeg_kit.dart';
-import 'package:ffmpeg_kit_flutter_new/return_code.dart';
 import 'package:path_provider/path_provider.dart';
 import '../models/binaural_preset.dart';
+import 'ffmpeg_executor.dart';
 
 class BinauralAudioGenerator {
   static const int _durationSeconds = 2700; // 45 minutes (default for activities not in short list)
@@ -114,10 +113,9 @@ class BinauralAudioGenerator {
       print('FFmpeg command: $command');
       print('Generating ${durationSeconds}s audio file (will loop seamlessly)');
       
-      final session = await FFmpegKit.execute(command);
-      final returnCode = await session.getReturnCode();
-      
-      if (ReturnCode.isSuccess(returnCode)) {
+      final result = await FFmpegExecutor.execute(command);
+
+      if (result.isSuccess) {
         // Verify file was created
         final file = File(outputPath);
         if (await file.exists()) {
@@ -130,9 +128,7 @@ class BinauralAudioGenerator {
           return false;
         }
       } else {
-        final logs = await session.getLogs();
-        final errorLogs = logs.map((log) => log.getMessage()).join('\n');
-        print('FFmpeg error: $errorLogs');
+        print('FFmpeg error: ${result.output}');
         return false;
       }
     } catch (e) {

@@ -23,6 +23,7 @@ dependencies:
   flutter_dotenv: ^5.1.0
   share_plus: ^10.1.4
   file_picker: ^8.0.0
+  just_audio_windows: ^0.2.2
 
 dev_dependencies:
   flutter_test:
@@ -33,11 +34,9 @@ flutter:
   uses-material-design: true
   assets:
     - .env
+    - assets/audio/
     - assets/audio/background-audio/
     - assets/audio/background-music/
-    - assets/audio/binaural/
-    - assets/audio/binaural/generated/
-    # Explicitly include subdirectories to ensure directories with spaces are included
     - assets/audio/binaural/generated/relax/
     - assets/audio/binaural/generated/sleep/
     - assets/audio/binaural/generated/exercise/
@@ -46,6 +45,5 @@ flutter:
     - assets/audio/binaural/generated/study/
     - assets/audio/binaural/generated/anxiety relief/
     - assets/audio/binaural/generated/energy boost/
-    - assets/audio/narration/
     - assets/json/
     - lib/schemas/

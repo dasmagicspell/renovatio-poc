@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:uuid/uuid.dart';
 import 'package:just_audio/just_audio.dart';
 import '../models/session.dart';
@@ -98,18 +99,39 @@ class _NewSessionPageState extends State<NewSessionPage> {
     super.dispose();
   }
   
-  /// Convert background music name to asset filename
-  /// Example: "Classical Music" -> "classical-music.mp3"
-  String _getBackgroundMusicFilename(String musicName) {
-    if (musicName == 'None') return '';
-    return '${musicName.toLowerCase().replaceAll(' ', '-')}.mp3';
+  /// Checks whether an asset exists in the bundled Flutter assets.
+  Future<bool> _assetExists(String assetPath) async {
+    try {
+      await rootBundle.load(assetPath);
+      return true;
+    } catch (_) {
+      return false;
+    }
   }
-  
-  /// Convert background ambience name to asset filename
-  /// Example: "Ocean Waves" -> "ocean-waves.mp3"
-  String _getBackgroundAmbienceFilename(String ambienceName) {
-    if (ambienceName == 'None') return '';
-    return '${ambienceName.toLowerCase().replaceAll(' ', '-')}.mp3';
+
+  /// Resolves a preview asset by trying multiple common audio extensions.
+  Future<String?> _resolvePreviewAssetPath({
+    required String folder,
+    required String selectedName,
+  }) async {
+    final baseName = selectedName.toLowerCase().replaceAll(' ', '-');
+    const extensions = ['.mp3', '.m4a', '.wav', '.mp4'];
+    debugPrint(
+      'Resolving preview asset: selected="$selectedName", folder="$folder", baseName="$baseName"',
+    );
+
+    for (final ext in extensions) {
+      final candidate = '$folder/$baseName$ext';
+      debugPrint('Checking asset candidate: $candidate');
+      if (await _assetExists(candidate)) {
+        debugPrint('Found preview asset: $candidate');
+        return candidate;
+      }
+      debugPrint('Missing preview asset: $candidate');
+    }
+
+    debugPrint('No preview asset found for "$selectedName" in "$folder".');
+    return null;
   }
   
   /// Play preview of selected background music
@@ -131,17 +153,38 @@ class _NewSessionPageState extends State<NewSessionPage> {
       _backgroundMusicPreviewPlayer = AudioPlayer();
       
       // Listen to player state changes
-      _playerStateSubscription = _backgroundMusicPreviewPlayer!.playerStateStream.listen((state) {
+      _playerStateSubscription = _backgroundMusicPreviewPlayer!.playerStateStream.listen(
+        (state) {
+          if (mounted) {
+            setState(() {
+              _isPlayingBackgroundMusic = state.playing;
+            });
+          }
+        },
+        onError: (Object error, StackTrace stackTrace) {
+          debugPrint('Background music player stream error: $error');
+        },
+      );
+
+      final selectedMusic = _selectedBackgroundMusic!;
+      final assetPath = await _resolvePreviewAssetPath(
+        folder: 'assets/audio/background-music',
+        selectedName: selectedMusic,
+      );
+      if (assetPath == null) {
+        debugPrint(
+          'Background music preview failed: selected="$selectedMusic", folder="assets/audio/background-music"',
+        );
         if (mounted) {
-          setState(() {
-            _isPlayingBackgroundMusic = state.playing;
-          });
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Preview file not found for "$selectedMusic".'),
+              backgroundColor: Colors.orange,
+            ),
+          );
         }
-      });
-      
-      // Get filename
-      final filename = _getBackgroundMusicFilename(_selectedBackgroundMusic!);
-      final assetPath = 'assets/audio/background-music/$filename';
+        return;
+      }
       
       // Load and play
       await _backgroundMusicPreviewPlayer!.setAsset(assetPath);
@@ -205,17 +248,38 @@ class _NewSessionPageState extends State<NewSessionPage> {
       _backgroundAmbiencePreviewPlayer = AudioPlayer();
       
       // Listen to player state changes
-      _ambienceStateSubscription = _backgroundAmbiencePreviewPlayer!.playerStateStream.listen((state) {
+      _ambienceStateSubscription = _backgroundAmbiencePreviewPlayer!.playerStateStream.listen(
+        (state) {
+          if (mounted) {
+            setState(() {
+              _isPlayingBackgroundAmbience = state.playing;
+            });
+          }
+        },
+        onError: (Object error, StackTrace stackTrace) {
+          debugPrint('Background ambience player stream error: $error');
+        },
+      );
+
+      final selectedAmbience = _selectedBackgroundAmbience!;
+      final assetPath = await _resolvePreviewAssetPath(
+        folder: 'assets/audio/background-audio',
+        selectedName: selectedAmbience,
+      );
+      if (assetPath == null) {
+        debugPrint(
+          'Background ambience preview failed: selected="$selectedAmbience", folder="assets/audio/background-audio"',
+        );
         if (mounted) {
-          setState(() {
-            _isPlayingBackgroundAmbience = state.playing;
-          });
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Preview file not found for "$selectedAmbience".'),
+              backgroundColor: Colors.orange,
+            ),
+          );
         }
-      });
-      
-      // Get filename
-      final filename = _getBackgroundAmbienceFilename(_selectedBackgroundAmbience!);
-      final assetPath = 'assets/audio/background-audio/$filename';
+        return;
+      }
       
       // Load and play
       await _backgroundAmbiencePreviewPlayer!.setAsset(assetPath);
