@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import 'audio_player_page.dart';
 import 'health_data_page.dart';
 import 'sessions_page.dart';
@@ -13,6 +14,7 @@ class MainNavigation extends StatefulWidget {
 
 class _MainNavigationState extends State<MainNavigation> {
   int _selectedIndex = 0;
+  String _appVersion = '';
   
   final List<Widget> _pages = [
     const SessionsPage(),
@@ -27,6 +29,18 @@ class _MainNavigationState extends State<MainNavigation> {
     'Audio Generation',
     'Health Data',
   ];
+
+  @override
+  void initState() {
+    super.initState();
+    PackageInfo.fromPlatform().then((info) {
+      if (mounted) {
+        setState(() {
+          _appVersion = info.version;
+        });
+      }
+    });
+  }
 
   static const _primary = Color(0xFF7BC4B8);
   static const _background = Color(0xFFF3E4D7);
@@ -156,7 +170,7 @@ class _MainNavigationState extends State<MainNavigation> {
                 Divider(color: const Color(0xFFD9D0C8)),
                 const SizedBox(height: 8),
                 Text(
-                  'Version 1.0.0',
+                  'Version $_appVersion',
                   style: TextStyle(
                     color: _textSecondary,
                     fontSize: 12,
