@@ -25,8 +25,19 @@ class MainApp extends StatelessWidget {
     return MaterialApp(
       title: 'Renovatio',
       theme: ThemeData(
-        primarySwatch: Colors.blue,
-        brightness: Brightness.dark,
+        brightness: Brightness.light,
+        colorScheme: ColorScheme.fromSeed(
+          seedColor: const Color(0xFF7BC4B8),
+          brightness: Brightness.light,
+        ),
+        scaffoldBackgroundColor: const Color(0xFFF3E4D7),
+        appBarTheme: const AppBarTheme(
+          backgroundColor: Color(0xFFEDEAE6),
+          foregroundColor: Color(0xFF2F2F2F),
+          elevation: 0,
+          iconTheme: IconThemeData(color: Color(0xFF2F2F2F)),
+        ),
+        useMaterial3: true,
       ),
       home: const MainNavigation(),
     );

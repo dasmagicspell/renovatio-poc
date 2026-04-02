@@ -91,3 +91,6 @@ coverage/
 *.lcov
 
 assets/audio/narration
+
+
+key.properties

@@ -3,8 +3,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:uuid/uuid.dart';
 import 'package:just_audio/just_audio.dart';
-import '../models/session.dart';
-import '../services/session_storage_service.dart';
+import 'models/session.dart';
+import 'services/session_storage_service.dart';
+import 'services/elevenlabs_service.dart';
+import 'services/config_service.dart';
 import 'session_details_page.dart';
 
 class NewSessionPage extends StatefulWidget {
@@ -20,7 +22,7 @@ class _NewSessionPageState extends State<NewSessionPage> {
   final _narrationTextController = TextEditingController();
   
   String? _selectedActivity;
-  double _durationMinutes = 30.0;
+  double _durationMinutes = 15.0;
   String? _selectedBackgroundMusic;
   String? _selectedBackgroundAmbience;
   
@@ -33,16 +35,35 @@ class _NewSessionPageState extends State<NewSessionPage> {
   AudioPlayer? _backgroundAmbiencePreviewPlayer;
   bool _isPlayingBackgroundAmbience = false;
   StreamSubscription? _ambienceStateSubscription;
+
+  // ElevenLabs voices
+  List<ElevenLabsVoice> _availableVoices = [];
+  ElevenLabsVoice? _selectedVoice;
+  bool _isLoadingVoices = false;
+  String? _voicesError;
+
+  static const _primary = Color(0xFF7BC4B8);
+  static const _secondary = Color(0xFFB8A4D4);
+  static const _background = Color(0xFFF3E4D7);
+  static const _surface = Color(0xFFEDEAE6);
+  static const _textPrimary = Color(0xFF2F2F2F);
+  static const _textSecondary = Color(0xFF7A7570);
+  static const _border = Color(0xFFD9D0C8);
   
   // Activity options with their corresponding frequency bands
   final Map<String, String> _activityFrequencies = {
-    'Relax': 'Alpha 10Hz',
+    'Deep Sleep': 'Delta 1Hz',
     'Sleep': 'Delta 2Hz',
-    'Exercise': 'Beta 20Hz',
+    'Deep Meditation': 'Delta 2Hz',
+    'Pain Relief': 'Delta 2Hz',
     'Meditate': 'Theta 6Hz',
-    'Focus': 'Beta 20Hz',
-    'Study': 'Alpha 10Hz',
     'Anxiety Relief': 'Theta 6Hz',
+    'Creativity': 'Theta 6Hz',
+    'Relax': 'Alpha 10Hz',
+    'Study': 'Alpha 10Hz',
+    'Light Focus': 'Alpha 10Hz',
+    'Exercise': 'Beta 20Hz',
+    'Focus': 'Beta 20Hz',
     'Energy Boost': 'Gamma 40Hz',
   };
   
@@ -58,16 +79,6 @@ class _NewSessionPageState extends State<NewSessionPage> {
     'Classical Music',
     'Piano Instrumental',
     'Acoustic Guitar',
-    /*'Meditation Music',
-    'Zen Music',
-    'Chillout Music',
-    'Lounge Music',
-    'Spa Music',
-    'Nature Ambience',
-    'White Noise',
-    'Brown Noise',
-    'Pink Noise',
-    'Ambient Electronic',*/
   ];
   
   // Background ambience options
@@ -77,17 +88,47 @@ class _NewSessionPageState extends State<NewSessionPage> {
     'Ocean Waves',
     'Rain',
     'Birds Chirping',
-    /*'Crackling Fire',
-    'Waterfall',
-    'Wind',
-    'Desert Wind',
-    'Tropical Beach',
-    'Mountain Stream',
-    'Night Sounds',
-    'Zen Garden',
-    'Thunderstorm',*/
   ];
   
+  @override
+  void initState() {
+    super.initState();
+    _loadVoices();
+  }
+
+  Future<void> _loadVoices() async {
+    final apiKey = ConfigService.elevenLabsApiKey;
+    if (apiKey == null) {
+      setState(() {
+        _voicesError = 'ElevenLabs API key not configured.';
+      });
+      return;
+    }
+
+    setState(() {
+      _isLoadingVoices = true;
+      _voicesError = null;
+    });
+
+    try {
+      ElevenLabsService.initialize(apiKey);
+      final voices = await ElevenLabsService.getVoices(includeLegacy: true);
+      if (mounted) {
+        setState(() {
+          _availableVoices = voices;
+          _isLoadingVoices = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _voicesError = 'Failed to load voices: $e';
+          _isLoadingVoices = false;
+        });
+      }
+    }
+  }
+
   @override
   void dispose() {
     _sessionNameController.dispose();
@@ -132,9 +173,16 @@ class _NewSessionPageState extends State<NewSessionPage> {
 
     debugPrint('No preview asset found for "$selectedName" in "$folder".');
     return null;
+  String _getBackgroundMusicFilename(String musicName) {
+    if (musicName == 'None') return '';
+    return '${musicName.toLowerCase().replaceAll(' ', '-')}.mp3';
   }
   
-  /// Play preview of selected background music
+  String _getBackgroundAmbienceFilename(String ambienceName) {
+    if (ambienceName == 'None') return '';
+    return '${ambienceName.toLowerCase().replaceAll(' ', '-')}.mp3';
+  }
+  
   Future<void> _playBackgroundMusicPreview() async {
     if (_selectedBackgroundMusic == null || 
         _selectedBackgroundMusic == 'None' || 
@@ -143,13 +191,7 @@ class _NewSessionPageState extends State<NewSessionPage> {
     }
     
     try {
-      // Stop any currently playing audio
       await _stopBackgroundMusicPreview();
-      
-      // Stop any existing player and cancel subscription
-      await _stopBackgroundMusicPreview();
-      
-      // Create new player
       _backgroundMusicPreviewPlayer = AudioPlayer();
       
       // Listen to player state changes
@@ -186,18 +228,15 @@ class _NewSessionPageState extends State<NewSessionPage> {
         return;
       }
       
-      // Load and play
       await _backgroundMusicPreviewPlayer!.setAsset(assetPath);
       await _backgroundMusicPreviewPlayer!.play();
       
-      // Update state immediately
       if (mounted) {
         setState(() {
           _isPlayingBackgroundMusic = true;
         });
       }
     } catch (e) {
-      print('Error playing background music preview: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -209,9 +248,7 @@ class _NewSessionPageState extends State<NewSessionPage> {
     }
   }
   
-  /// Stop background music preview
   Future<void> _stopBackgroundMusicPreview() async {
-    // Cancel subscription
     await _playerStateSubscription?.cancel();
     _playerStateSubscription = null;
     
@@ -221,7 +258,7 @@ class _NewSessionPageState extends State<NewSessionPage> {
         await _backgroundMusicPreviewPlayer!.dispose();
         _backgroundMusicPreviewPlayer = null;
       } catch (e) {
-        print('Error stopping background music preview: $e');
+        // ignore
       }
     }
     
@@ -232,7 +269,6 @@ class _NewSessionPageState extends State<NewSessionPage> {
     }
   }
   
-  /// Play preview of selected background ambience
   Future<void> _playBackgroundAmbiencePreview() async {
     if (_selectedBackgroundAmbience == null || 
         _selectedBackgroundAmbience == 'None' || 
@@ -241,10 +277,7 @@ class _NewSessionPageState extends State<NewSessionPage> {
     }
     
     try {
-      // Stop any existing player and cancel subscription
       await _stopBackgroundAmbiencePreview();
-      
-      // Create new player
       _backgroundAmbiencePreviewPlayer = AudioPlayer();
       
       // Listen to player state changes
@@ -281,18 +314,15 @@ class _NewSessionPageState extends State<NewSessionPage> {
         return;
       }
       
-      // Load and play
       await _backgroundAmbiencePreviewPlayer!.setAsset(assetPath);
       await _backgroundAmbiencePreviewPlayer!.play();
       
-      // Update state immediately
       if (mounted) {
         setState(() {
           _isPlayingBackgroundAmbience = true;
         });
       }
     } catch (e) {
-      print('Error playing background ambience preview: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -304,9 +334,7 @@ class _NewSessionPageState extends State<NewSessionPage> {
     }
   }
   
-  /// Stop background ambience preview
   Future<void> _stopBackgroundAmbiencePreview() async {
-    // Cancel subscription
     await _ambienceStateSubscription?.cancel();
     _ambienceStateSubscription = null;
     
@@ -316,7 +344,7 @@ class _NewSessionPageState extends State<NewSessionPage> {
         await _backgroundAmbiencePreviewPlayer!.dispose();
         _backgroundAmbiencePreviewPlayer = null;
       } catch (e) {
-        print('Error stopping background ambience preview: $e');
+        // ignore
       }
     }
     
@@ -330,7 +358,6 @@ class _NewSessionPageState extends State<NewSessionPage> {
   Future<void> _createSession() async {
     if (_formKey.currentState!.validate()) {
       try {
-        // Create a new soundscape
         final session = Session(
           id: const Uuid().v4(),
           name: _sessionNameController.text.trim(),
@@ -339,24 +366,12 @@ class _NewSessionPageState extends State<NewSessionPage> {
           backgroundMusic: _selectedBackgroundMusic!,
           backgroundAmbience: _selectedBackgroundAmbience ?? 'None',
           narrationText: _narrationTextController.text.trim(),
+          narrationVoiceId: _selectedVoice?.voiceId,
           createdAt: DateTime.now(),
         );
         
-        // Save to local storage
         await SessionStorageService.saveSession(session);
         
-        // Print for debugging
-        print('=== Session Saved ===');
-        print('Session Name: ${session.name}');
-        print('Activity: ${session.activity}');
-        print('Duration: ${session.durationMinutes} minutes');
-        print('Background Music: ${session.backgroundMusic}');
-        print('Background Ambience: ${session.backgroundAmbience}');
-        print('Narration Text: ${session.narrationText}');
-        print('ID: ${session.id}');
-        print('=====================');
-        
-        // Show success message
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
@@ -365,7 +380,6 @@ class _NewSessionPageState extends State<NewSessionPage> {
             ),
           );
           
-          // Navigate to soundscape details page
           Navigator.of(context).pushReplacement(
             MaterialPageRoute(
               builder: (context) => SessionDetailsPage(session: session),
@@ -373,7 +387,6 @@ class _NewSessionPageState extends State<NewSessionPage> {
           );
         }
       } catch (e) {
-        // Show error message
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
@@ -394,20 +407,53 @@ class _NewSessionPageState extends State<NewSessionPage> {
       return '$mins minutes';
     }
   }
+
+  InputDecoration _fieldDecoration({required String hint}) {
+    return InputDecoration(
+      hintText: hint,
+      hintStyle: const TextStyle(color: Color(0xFFA09890)),
+      filled: true,
+      fillColor: _surface,
+      border: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(10),
+        borderSide: const BorderSide(color: _border),
+      ),
+      enabledBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(10),
+        borderSide: const BorderSide(color: _border),
+      ),
+      focusedBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(10),
+        borderSide: const BorderSide(color: _primary, width: 2),
+      ),
+      errorBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(10),
+        borderSide: const BorderSide(color: Colors.red),
+      ),
+      focusedErrorBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(10),
+        borderSide: const BorderSide(color: Colors.red, width: 2),
+      ),
+    );
+  }
   
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFF1a1a1a),
+      backgroundColor: _background,
       appBar: AppBar(
-          title: const Text(
+        title: const Text(
           'New Soundscape',
-          style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+          style: TextStyle(
+            color: _textPrimary,
+            fontWeight: FontWeight.bold,
+          ),
         ),
-        backgroundColor: const Color(0xFF2d2d2d),
+        backgroundColor: _surface,
         elevation: 0,
+        surfaceTintColor: Colors.transparent,
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back, color: Colors.white),
+          icon: const Icon(Icons.arrow_back, color: _textPrimary),
           onPressed: () => Navigator.of(context).pop(),
         ),
       ),
@@ -422,46 +468,54 @@ class _NewSessionPageState extends State<NewSessionPage> {
               Container(
                 padding: const EdgeInsets.all(20),
                 decoration: BoxDecoration(
-                  color: const Color(0xFF2d2d2d),
-                  borderRadius: BorderRadius.circular(12),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withOpacity(0.3),
-                      blurRadius: 8,
-                      offset: const Offset(0, 4),
-                    ),
-                  ],
+                  gradient: LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: [
+                      _primary.withOpacity(0.12),
+                      _secondary.withOpacity(0.10),
+                    ],
+                  ),
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: _primary.withOpacity(0.20)),
                 ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+                child: Row(
                   children: [
-                    Row(
-                      children: [
-                        Icon(
-                          Icons.add_circle_outline,
-                          color: Colors.blue,
-                          size: 28,
-                        ),
-                        const SizedBox(width: 12),
-                        const Expanded(
-                          child: Text(
+                    Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: _primary.withOpacity(0.12),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: const Icon(
+                        Icons.add_circle_outline,
+                        color: _primary,
+                        size: 26,
+                      ),
+                    ),
+                    const SizedBox(width: 14),
+                    const Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
                             'Create New Soundscape',
                             style: TextStyle(
-                              color: Colors.white,
-                              fontSize: 20,
+                              color: _textPrimary,
+                              fontSize: 18,
                               fontWeight: FontWeight.bold,
                             ),
                             overflow: TextOverflow.ellipsis,
                           ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 12),
-                    const Text(
-                      'Configure your personalized binaural audio soundscape',
-                      style: TextStyle(
-                        color: Colors.white70,
-                        fontSize: 16,
+                          SizedBox(height: 4),
+                          Text(
+                            'Configure your personalized binaural audio soundscape',
+                            style: TextStyle(
+                              color: _textSecondary,
+                              fontSize: 13,
+                            ),
+                          ),
+                        ],
                       ),
                     ),
                   ],
@@ -469,341 +523,308 @@ class _NewSessionPageState extends State<NewSessionPage> {
               ),
               
               const SizedBox(height: 24),
-              
-              // Soundscape Name Field
-              _buildSectionTitle('Soundscape Name'),
-              const SizedBox(height: 8),
-              TextFormField(
-                controller: _sessionNameController,
-                style: const TextStyle(color: Colors.white),
-                decoration: InputDecoration(
-                  hintText: 'Enter a name for this soundscape',
-                  hintStyle: TextStyle(color: Colors.white54),
-                  filled: true,
-                  fillColor: const Color(0xFF2d2d2d),
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(8),
-                    borderSide: BorderSide(color: Colors.grey[700]!),
-                  ),
-                  enabledBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(8),
-                    borderSide: BorderSide(color: Colors.grey[700]!),
-                  ),
-                  focusedBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(8),
-                    borderSide: const BorderSide(color: Colors.blue, width: 2),
-                  ),
-                ),
-                validator: (value) {
-                  if (value == null || value.trim().isEmpty) {
-                    return 'Please enter a soundscape name';
-                  }
-                  return null;
-                },
-              ),
-              
-              const SizedBox(height: 24),
-              
-              // Activity Field
-              _buildSectionTitle('Goal'),
-              const SizedBox(height: 8),
-              DropdownButtonFormField<String>(
-                value: _selectedActivity,
-                decoration: InputDecoration(
-                  hintText: 'Select your goal',
-                  hintStyle: TextStyle(color: Colors.white54),
-                  filled: true,
-                  fillColor: const Color(0xFF2d2d2d),
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(8),
-                    borderSide: BorderSide(color: Colors.grey[700]!),
-                  ),
-                  enabledBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(8),
-                    borderSide: BorderSide(color: Colors.grey[700]!),
-                  ),
-                  focusedBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(8),
-                    borderSide: const BorderSide(color: Colors.blue, width: 2),
-                  ),
-                ),
-                dropdownColor: const Color(0xFF2d2d2d),
-                style: const TextStyle(color: Colors.white),
-                icon: const Icon(Icons.arrow_drop_down, color: Colors.white),
-                items: _activities.map((activity) {
-                  final frequency = _getFrequencyForActivity(activity);
-                  return DropdownMenuItem<String>(
-                    value: activity,
-                    child: Text('$activity ($frequency)'),
-                  );
-                }).toList(),
-                onChanged: (value) {
-                  setState(() {
-                    _selectedActivity = value;
-                  });
-                },
-                validator: (value) {
-                  if (value == null || value.isEmpty) {
-                    return 'Please select an activity';
-                  }
-                  return null;
-                },
-              ),
-              
-              const SizedBox(height: 24),
-              
-              // Duration Field
-              _buildSectionTitle('Duration'),
-              const SizedBox(height: 8),
-              Container(
-                padding: const EdgeInsets.all(20),
-                decoration: BoxDecoration(
-                  color: const Color(0xFF2d2d2d),
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: Colors.grey[700]!),
-                ),
+
+              // Name & Goal Card
+              _buildFormCard(
+                icon: Icons.tune,
+                title: 'Goal',
                 child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      _formatDuration(_durationMinutes),
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 20,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                    Slider(
-                      value: _durationMinutes,
-                      min: 30.0,
-                      max: 60.0,
-                      divisions: 6, // 30, 35, 40, 45, 50, 55, 60
-                      activeColor: Colors.blue,
-                      inactiveColor: Colors.grey[700],
-                      label: _formatDuration(_durationMinutes),
-                      onChanged: (value) {
-                        setState(() {
-                          _durationMinutes = value;
-                        });
-                      },
-                    ),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Text(
-                          '30 min',
-                          style: TextStyle(color: Colors.white70, fontSize: 12),
-                        ),
-                        Text(
-                          '1 hour',
-                          style: TextStyle(color: Colors.white70, fontSize: 12),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-              
-              const SizedBox(height: 24),
-              
-              // Background Music Field
-              _buildSectionTitle('Background Music'),
-              const SizedBox(height: 8),
-              Row(
-                children: [
-                  Expanded(
-                    child: DropdownButtonFormField<String>(
-                      value: _selectedBackgroundMusic,
-                      decoration: InputDecoration(
-                        hintText: 'Select background music',
-                        hintStyle: TextStyle(color: Colors.white54),
-                        filled: true,
-                        fillColor: const Color(0xFF2d2d2d),
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(8),
-                          borderSide: BorderSide(color: Colors.grey[700]!),
-                        ),
-                        enabledBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(8),
-                          borderSide: BorderSide(color: Colors.grey[700]!),
-                        ),
-                        focusedBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(8),
-                          borderSide: const BorderSide(color: Colors.blue, width: 2),
-                        ),
-                      ),
-                      dropdownColor: const Color(0xFF2d2d2d),
-                      style: const TextStyle(color: Colors.white),
-                      icon: const Icon(Icons.arrow_drop_down, color: Colors.white),
-                      items: _backgroundMusicOptions.map((music) {
-                        return DropdownMenuItem<String>(
-                          value: music,
-                          child: Text(music),
-                        );
-                      }).toList(),
-                      onChanged: (value) async {
-                        // Stop current audio if playing
-                        if (_isPlayingBackgroundMusic) {
-                          await _stopBackgroundMusicPreview();
-                        }
-                        setState(() {
-                          _selectedBackgroundMusic = value;
-                        });
-                      },
+                    _buildFieldLabel('DESCRIPTION'),
+                    const SizedBox(height: 8),
+                    TextFormField(
+                      controller: _sessionNameController,
+                      style: const TextStyle(color: _textPrimary),
+                      decoration: _fieldDecoration(hint: 'e.g. Morning Focus Session'),
                       validator: (value) {
-                        if (value == null || value.isEmpty) {
-                          return 'Please select background music';
+                        if (value == null || value.trim().isEmpty) {
+                          return 'Please enter a soundscape name';
                         }
                         return null;
                       },
                     ),
-                  ),
-                  const SizedBox(width: 8),
-                  IconButton(
-                    onPressed: (_selectedBackgroundMusic != null && 
-                               _selectedBackgroundMusic != 'None')
-                        ? (_isPlayingBackgroundMusic 
-                            ? _stopBackgroundMusicPreview 
-                            : _playBackgroundMusicPreview)
-                        : null,
-                    icon: Icon(
-                      _isPlayingBackgroundMusic ? Icons.stop : Icons.play_arrow,
-                      color: Colors.white,
-                    ),
-                    style: IconButton.styleFrom(
-                      backgroundColor: (_selectedBackgroundMusic != null && 
-                                     _selectedBackgroundMusic != 'None')
-                          ? (_isPlayingBackgroundMusic 
-                              ? Colors.red 
-                              : Colors.green)
-                          : const Color(0xFF2d2d2d),
-                      padding: const EdgeInsets.all(12),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(8),
-                        side: BorderSide(
-                          color: (_selectedBackgroundMusic != null && 
-                                 _selectedBackgroundMusic != 'None')
-                              ? (_isPlayingBackgroundMusic 
-                                  ? Colors.red.shade700 
-                                  : Colors.green.shade700)
-                              : Colors.grey[700]!,
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-              
-              const SizedBox(height: 24),
-              
-              // Background Ambience Field
-              _buildSectionTitle('Background Ambience'),
-              const SizedBox(height: 8),
-              Row(
-                children: [
-                  Expanded(
-                    child: DropdownButtonFormField<String>(
-                      value: _selectedBackgroundAmbience,
-                      decoration: InputDecoration(
-                        hintText: 'Select background ambience',
-                        hintStyle: TextStyle(color: Colors.white54),
-                        filled: true,
-                        fillColor: const Color(0xFF2d2d2d),
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(8),
-                          borderSide: BorderSide(color: Colors.grey[700]!),
-                        ),
-                        enabledBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(8),
-                          borderSide: BorderSide(color: Colors.grey[700]!),
-                        ),
-                        focusedBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(8),
-                          borderSide: const BorderSide(color: Colors.blue, width: 2),
-                        ),
-                      ),
-                      dropdownColor: const Color(0xFF2d2d2d),
-                      style: const TextStyle(color: Colors.white),
-                      icon: const Icon(Icons.arrow_drop_down, color: Colors.white),
-                      items: _backgroundAmbienceOptions.map((ambience) {
+                    const SizedBox(height: 20),
+                    _buildFieldLabel('GOAL'),
+                    const SizedBox(height: 8),
+                    DropdownButtonFormField<String>(
+                      value: _selectedActivity,
+                      decoration: _fieldDecoration(hint: 'Select your goal'),
+                      dropdownColor: _surface,
+                      style: const TextStyle(color: _textPrimary),
+                      icon: const Icon(Icons.arrow_drop_down, color: _textSecondary),
+                      items: _activities.map((activity) {
+                        final frequency = _getFrequencyForActivity(activity);
                         return DropdownMenuItem<String>(
-                          value: ambience,
-                          child: Text(ambience),
+                          value: activity,
+                          child: Text('$activity ($frequency)'),
                         );
                       }).toList(),
-                      onChanged: (value) async {
-                        // Stop current audio if playing
-                        if (_isPlayingBackgroundAmbience) {
-                          await _stopBackgroundAmbiencePreview();
-                        }
+                      onChanged: (value) {
                         setState(() {
-                          _selectedBackgroundAmbience = value;
+                          _selectedActivity = value;
                         });
                       },
+                      validator: (value) {
+                        if (value == null || value.isEmpty) {
+                          return 'Please select an activity';
+                        }
+                        return null;
+                      },
                     ),
-                  ),
-                  const SizedBox(width: 8),
-                  IconButton(
-                    onPressed: (_selectedBackgroundAmbience != null && 
-                               _selectedBackgroundAmbience != 'None')
-                        ? (_isPlayingBackgroundAmbience 
-                            ? _stopBackgroundAmbiencePreview 
-                            : _playBackgroundAmbiencePreview)
-                        : null,
-                    icon: Icon(
-                      _isPlayingBackgroundAmbience ? Icons.stop : Icons.play_arrow,
-                      color: Colors.white,
-                    ),
-                    style: IconButton.styleFrom(
-                      backgroundColor: (_selectedBackgroundAmbience != null && 
-                                     _selectedBackgroundAmbience != 'None')
-                          ? (_isPlayingBackgroundAmbience 
-                              ? Colors.red 
-                              : Colors.green)
-                          : const Color(0xFF2d2d2d),
-                      padding: const EdgeInsets.all(12),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(8),
-                        side: BorderSide(
-                          color: (_selectedBackgroundAmbience != null && 
-                                 _selectedBackgroundAmbience != 'None')
-                              ? (_isPlayingBackgroundAmbience 
-                                  ? Colors.red.shade700 
-                                  : Colors.green.shade700)
-                              : Colors.grey[700]!,
+                    if (_selectedActivity != null) ...[
+                      const SizedBox(height: 12),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                        decoration: BoxDecoration(
+                          color: _primary.withOpacity(0.07),
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: _primary.withOpacity(0.2)),
+                        ),
+                        child: Row(
+                          children: [
+                            Icon(Icons.graphic_eq, size: 16, color: _primary),
+                            const SizedBox(width: 8),
+                            Text(
+                              'Binaural frequency: ${_getFrequencyForActivity(_selectedActivity!)}',
+                              style: const TextStyle(
+                                color: _primary,
+                                fontSize: 13,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                          ],
                         ),
                       ),
-                    ),
-                  ),
-                ],
+                    ],
+                  ],
+                ),
               ),
               
-              const SizedBox(height: 24),
-              
-              // Narration Text Field
-              _buildSectionTitle('Narration Text'),
-              const SizedBox(height: 8),
-              TextFormField(
-                controller: _narrationTextController,
-                style: const TextStyle(color: Colors.white),
-                maxLines: 5,
-                decoration: InputDecoration(
-                  hintText: 'Enter the words you want to be narrated during the soundscape...',
-                  hintStyle: TextStyle(color: Colors.white54),
-                  filled: true,
-                  fillColor: const Color(0xFF2d2d2d),
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(8),
-                    borderSide: BorderSide(color: Colors.grey[700]!),
-                  ),
-                  enabledBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(8),
-                    borderSide: BorderSide(color: Colors.grey[700]!),
-                  ),
-                  focusedBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(8),
-                    borderSide: const BorderSide(color: Colors.blue, width: 2),
-                  ),
+              const SizedBox(height: 16),
+
+              // Duration Card
+              _buildFormCard(
+                icon: Icons.timer_outlined,
+                title: 'Duration',
+                child: Column(
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        _buildFieldLabel('SESSION LENGTH'),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                          decoration: BoxDecoration(
+                            color: _primary.withOpacity(0.1),
+                            borderRadius: BorderRadius.circular(20),
+                          ),
+                          child: Text(
+                            _formatDuration(_durationMinutes),
+                            style: const TextStyle(
+                              color: _primary,
+                              fontSize: 14,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    SliderTheme(
+                      data: SliderTheme.of(context).copyWith(
+                        activeTrackColor: _primary,
+                        inactiveTrackColor: _primary.withOpacity(0.15),
+                        thumbColor: _primary,
+                        overlayColor: _primary.withOpacity(0.12),
+                        valueIndicatorColor: _primary,
+                        valueIndicatorTextStyle: const TextStyle(color: Colors.white),
+                      ),
+                      child: Slider(
+                        value: _durationMinutes,
+                        min: 15.0,
+                        max: 60.0,
+                        divisions: 9,
+                        label: _formatDuration(_durationMinutes),
+                        onChanged: (value) {
+                          setState(() {
+                            _durationMinutes = value;
+                          });
+                        },
+                      ),
+                    ),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text('15 min', style: TextStyle(color: _textSecondary, fontSize: 12)),
+                        Text('1 hour', style: TextStyle(color: _textSecondary, fontSize: 12)),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+
+              const SizedBox(height: 16),
+
+              // Background Music Card
+              _buildFormCard(
+                icon: Icons.music_note_outlined,
+                title: 'Background Music',
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _buildFieldLabel('TRACK'),
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: DropdownButtonFormField<String>(
+                            value: _selectedBackgroundMusic,
+                            decoration: _fieldDecoration(hint: 'Select a track'),
+                            dropdownColor: _surface,
+                            style: const TextStyle(color: _textPrimary),
+                            icon: const Icon(Icons.arrow_drop_down, color: _textSecondary),
+                            items: _backgroundMusicOptions.map((music) {
+                              return DropdownMenuItem<String>(
+                                value: music,
+                                child: Text(music),
+                              );
+                            }).toList(),
+                            onChanged: (value) async {
+                              if (_isPlayingBackgroundMusic) {
+                                await _stopBackgroundMusicPreview();
+                              }
+                              setState(() {
+                                _selectedBackgroundMusic = value;
+                              });
+                            },
+                            validator: (value) {
+                              if (value == null || value.isEmpty) {
+                                return 'Please select background music';
+                              }
+                              return null;
+                            },
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        _buildPreviewButton(
+                          enabled: _selectedBackgroundMusic != null &&
+                              _selectedBackgroundMusic != 'None',
+                          isPlaying: _isPlayingBackgroundMusic,
+                          onPlay: _playBackgroundMusicPreview,
+                          onStop: _stopBackgroundMusicPreview,
+                        ),
+                      ],
+                    ),
+                    if (_selectedBackgroundMusic != null &&
+                        _selectedBackgroundMusic != 'None') ...[
+                      const SizedBox(height: 8),
+                      Text(
+                        _isPlayingBackgroundMusic
+                            ? 'Playing preview — tap stop when done'
+                            : 'Tap play to preview this track',
+                        style: TextStyle(
+                          color: _isPlayingBackgroundMusic ? const Color(0xFF7BAF8E) : _textSecondary,
+                          fontSize: 12,
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+
+              const SizedBox(height: 16),
+
+              // Ambience Card
+              _buildFormCard(
+                icon: Icons.park_outlined,
+                title: 'Ambience',
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _buildFieldLabel('NATURE SOUND'),
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: DropdownButtonFormField<String>(
+                            value: _selectedBackgroundAmbience,
+                            decoration: _fieldDecoration(hint: 'Select an ambience'),
+                            dropdownColor: _surface,
+                            style: const TextStyle(color: _textPrimary),
+                            icon: const Icon(Icons.arrow_drop_down, color: _textSecondary),
+                            items: _backgroundAmbienceOptions.map((ambience) {
+                              return DropdownMenuItem<String>(
+                                value: ambience,
+                                child: Text(ambience),
+                              );
+                            }).toList(),
+                            onChanged: (value) async {
+                              if (_isPlayingBackgroundAmbience) {
+                                await _stopBackgroundAmbiencePreview();
+                              }
+                              setState(() {
+                                _selectedBackgroundAmbience = value;
+                              });
+                            },
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        _buildPreviewButton(
+                          enabled: _selectedBackgroundAmbience != null &&
+                              _selectedBackgroundAmbience != 'None',
+                          isPlaying: _isPlayingBackgroundAmbience,
+                          onPlay: _playBackgroundAmbiencePreview,
+                          onStop: _stopBackgroundAmbiencePreview,
+                        ),
+                      ],
+                    ),
+                    if (_selectedBackgroundAmbience != null &&
+                        _selectedBackgroundAmbience != 'None') ...[
+                      const SizedBox(height: 8),
+                      Text(
+                        _isPlayingBackgroundAmbience
+                            ? 'Playing preview — tap stop when done'
+                            : 'Tap play to preview this sound',
+                        style: TextStyle(
+                          color: _isPlayingBackgroundAmbience ? const Color(0xFF7BAF8E) : _textSecondary,
+                          fontSize: 12,
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+
+              const SizedBox(height: 16),
+
+              // Narration Card
+              _buildFormCard(
+                icon: Icons.record_voice_over_outlined,
+                title: 'Narration',
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _buildFieldLabel('VOICE'),
+                    const SizedBox(height: 8),
+                    _buildVoiceDropdown(),
+                    const SizedBox(height: 20),
+                    _buildFieldLabel('SCRIPT'),
+                    const SizedBox(height: 4),
+                    Text(
+                      'These words will be narrated by AI during your session.',
+                      style: TextStyle(color: _textSecondary, fontSize: 12),
+                    ),
+                    const SizedBox(height: 10),
+                    TextFormField(
+                      controller: _narrationTextController,
+                      style: const TextStyle(color: _textPrimary),
+                      maxLines: 5,
+                      decoration: _fieldDecoration(
+                        hint: 'e.g. Breathe in slowly... hold... and release...',
+                      ),
+                    ),
+                  ],
                 ),
               ),
               
@@ -819,16 +840,17 @@ class _NewSessionPageState extends State<NewSessionPage> {
                     'Create Soundscape',
                     style: TextStyle(
                       color: Colors.white,
-                      fontSize: 18,
+                      fontSize: 17,
                       fontWeight: FontWeight.bold,
                     ),
                   ),
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.blue,
+                    backgroundColor: _primary,
                     padding: const EdgeInsets.symmetric(vertical: 16),
                     shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(8),
+                      borderRadius: BorderRadius.circular(12),
                     ),
+                    elevation: 0,
                   ),
                 ),
               ),
@@ -841,15 +863,220 @@ class _NewSessionPageState extends State<NewSessionPage> {
     );
   }
   
-  Widget _buildSectionTitle(String title) {
-    return Text(
-      title,
-      style: const TextStyle(
-        color: Colors.white,
-        fontSize: 16,
-        fontWeight: FontWeight.bold,
+  Widget _buildVoiceDropdown() {
+    if (_isLoadingVoices) {
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+        decoration: BoxDecoration(
+          color: _surface,
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: _border),
+        ),
+        child: Row(
+          children: [
+            const SizedBox(
+              width: 16,
+              height: 16,
+              child: CircularProgressIndicator(strokeWidth: 2, color: _primary),
+            ),
+            const SizedBox(width: 10),
+            Text(
+              'Loading voices...',
+              style: const TextStyle(color: _textSecondary, fontSize: 14),
+            ),
+          ],
+        ),
+      );
+    }
+
+    if (_voicesError != null) {
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        decoration: BoxDecoration(
+          color: Colors.red.shade50,
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: Colors.red.shade200),
+        ),
+        child: Row(
+          children: [
+            Icon(Icons.error_outline, color: Colors.red.shade400, size: 16),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                _voicesError!,
+                style: TextStyle(color: Colors.red.shade700, fontSize: 12),
+              ),
+            ),
+            TextButton(
+              onPressed: _loadVoices,
+              style: TextButton.styleFrom(
+                padding: const EdgeInsets.symmetric(horizontal: 8),
+                minimumSize: Size.zero,
+                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              ),
+              child: const Text('Retry', style: TextStyle(fontSize: 12)),
+            ),
+          ],
+        ),
+      );
+    }
+
+    if (_availableVoices.isEmpty) {
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        decoration: BoxDecoration(
+          color: _surface,
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: _border),
+        ),
+        child: const Text(
+          'No voices available',
+          style: TextStyle(color: _textSecondary, fontSize: 14),
+        ),
+      );
+    }
+
+    return DropdownButtonFormField<ElevenLabsVoice>(
+      value: _selectedVoice,
+      decoration: _fieldDecoration(hint: 'Select a voice'),
+      dropdownColor: _surface,
+      style: const TextStyle(color: _textPrimary),
+      icon: const Icon(Icons.arrow_drop_down, color: _textSecondary),
+      isExpanded: true,
+      items: _availableVoices.map((voice) {
+        return DropdownMenuItem<ElevenLabsVoice>(
+          value: voice,
+          child: Row(
+            children: [
+              const Icon(Icons.record_voice_over, size: 16, color: _textSecondary),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  voice.name,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(color: _textPrimary, fontSize: 14),
+                ),
+              ),
+              if (voice.category != null) ...[
+                const SizedBox(width: 6),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: _primary.withOpacity(0.08),
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  child: Text(
+                    voice.category!,
+                    style: const TextStyle(
+                      color: _primary,
+                      fontSize: 10,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ),
+              ],
+            ],
+          ),
+        );
+      }).toList(),
+      onChanged: (voice) {
+        setState(() {
+          _selectedVoice = voice;
+        });
+      },
+    );
+  }
+
+  Widget _buildPreviewButton({
+    required bool enabled,
+    required bool isPlaying,
+    required VoidCallback onPlay,
+    required VoidCallback onStop,
+  }) {
+    final color = isPlaying ? const Color(0xFFD4867A) : const Color(0xFF7BAF8E);
+    return IconButton(
+      onPressed: enabled ? (isPlaying ? onStop : onPlay) : null,
+      icon: Icon(
+        isPlaying ? Icons.stop_rounded : Icons.play_arrow_rounded,
+        color: enabled ? Colors.white : _textSecondary,
+      ),
+      style: IconButton.styleFrom(
+        backgroundColor: enabled ? color : _border,
+        padding: const EdgeInsets.all(12),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(10),
+        ),
       ),
     );
   }
-}
 
+  Widget _buildFormCard({
+    required IconData icon,
+    required String title,
+    required Widget child,
+  }) {
+    return Container(
+      decoration: BoxDecoration(
+        color: _surface,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: _border),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.05),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Card header
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 12),
+            child: Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: _primary.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Icon(icon, color: _primary, size: 18),
+                ),
+                const SizedBox(width: 10),
+                Text(
+                  title,
+                  style: const TextStyle(
+                    color: _textPrimary,
+                    fontSize: 15,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const Divider(height: 1, color: _border),
+          // Card body
+          Padding(
+            padding: const EdgeInsets.all(16),
+            child: child,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildFieldLabel(String label) {
+    return Text(
+      label,
+      style: const TextStyle(
+        color: _textSecondary,
+        fontSize: 13,
+        fontWeight: FontWeight.w600,
+        letterSpacing: 0.3,
+      ),
+    );
+  }
+
+}
