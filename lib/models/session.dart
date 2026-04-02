@@ -6,6 +6,7 @@ class Session {
   final String backgroundMusic;
   final String backgroundAmbience;
   final String narrationText;
+  final String? narrationVoiceId;
   final DateTime createdAt;
 
   Session({
@@ -16,6 +17,7 @@ class Session {
     required this.backgroundMusic,
     required this.backgroundAmbience,
     required this.narrationText,
+    this.narrationVoiceId,
     required this.createdAt,
   });
 
@@ -29,6 +31,7 @@ class Session {
       'backgroundMusic': backgroundMusic,
       'backgroundAmbience': backgroundAmbience,
       'narrationText': narrationText,
+      'narrationVoiceId': narrationVoiceId,
       'createdAt': createdAt.toIso8601String(),
     };
   }
@@ -43,6 +46,7 @@ class Session {
       backgroundMusic: json['backgroundMusic'] as String,
       backgroundAmbience: json['backgroundAmbience'] as String? ?? 'None',
       narrationText: json['narrationText'] as String? ?? '',
+      narrationVoiceId: json['narrationVoiceId'] as String?,
       createdAt: DateTime.parse(json['createdAt'] as String),
     );
   }

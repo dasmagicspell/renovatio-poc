@@ -15,12 +15,19 @@ class _SessionsPageState extends State<SessionsPage> {
   List<Session> _sessions = [];
   bool _isLoading = true;
 
+  static const _primary = Color(0xFF7BC4B8);
+  static const _background = Color(0xFFF3E4D7);
+  static const _surface = Color(0xFFEDEAE6);
+  static const _textPrimary = Color(0xFF2F2F2F);
+  static const _textSecondary = Color(0xFF7A7570);
+  static const _textTertiary = Color(0xFFA09890);
+  static const _border = Color(0xFFD9D0C8);
+
   @override
   void initState() {
     super.initState();
     _loadSessions();
   }
-
 
   Future<void> _loadSessions() async {
     setState(() {
@@ -29,7 +36,6 @@ class _SessionsPageState extends State<SessionsPage> {
 
     try {
       final sessions = await SessionStorageService.getAllSessions();
-      // Sort by creation date (newest first)
       sessions.sort((a, b) => b.createdAt.compareTo(a.createdAt));
       
       setState(() {
@@ -58,7 +64,6 @@ class _SessionsPageState extends State<SessionsPage> {
       ),
     );
     
-    // Reload soundscapes if a new soundscape was created
     if (result == true) {
       _loadSessions();
     }
@@ -75,28 +80,42 @@ class _SessionsPageState extends State<SessionsPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFF1a1a1a),
+      backgroundColor: _background,
       body: Column(
         children: [
           // Header Section
           Container(
-            padding: const EdgeInsets.all(20),
-            decoration: const BoxDecoration(
-              color: Color(0xFF2d2d2d),
+            padding: const EdgeInsets.fromLTRB(20, 20, 20, 20),
+            decoration: BoxDecoration(
+              color: _surface,
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.04),
+                  blurRadius: 10,
+                  offset: const Offset(0, 2),
+                ),
+              ],
             ),
             child: Row(
               children: [
-                const Icon(
-                  Icons.psychology,
-                  color: Colors.blue,
-                  size: 28,
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: _primary.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: const Icon(
+                    Icons.psychology,
+                    color: _primary,
+                    size: 26,
+                  ),
                 ),
                 const SizedBox(width: 12),
                 const Expanded(
                   child: Text(
                     'My Soundscapes',
                     style: TextStyle(
-                      color: Colors.white,
+                      color: _textPrimary,
                       fontSize: 20,
                       fontWeight: FontWeight.bold,
                     ),
@@ -104,17 +123,18 @@ class _SessionsPageState extends State<SessionsPage> {
                 ),
                 ElevatedButton.icon(
                   onPressed: _navigateToNewSession,
-                  icon: const Icon(Icons.add, color: Colors.white, size: 20),
+                  icon: const Icon(Icons.add, color: Colors.white, size: 18),
                   label: const Text(
-                    'New Soundscape',
+                    'New',
                     style: TextStyle(color: Colors.white),
                   ),
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.blue,
+                    backgroundColor: _primary,
                     padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
                     shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(8),
+                      borderRadius: BorderRadius.circular(10),
                     ),
+                    elevation: 0,
                   ),
                 ),
               ],
@@ -125,13 +145,13 @@ class _SessionsPageState extends State<SessionsPage> {
           Expanded(
             child: _isLoading
                 ? const Center(
-                    child: CircularProgressIndicator(color: Colors.blue),
+                    child: CircularProgressIndicator(color: _primary),
                   )
                 : _sessions.isEmpty
                     ? _buildEmptyState()
                     : RefreshIndicator(
                         onRefresh: _loadSessions,
-                        color: Colors.blue,
+                        color: _primary,
                         child: ListView.builder(
                           padding: const EdgeInsets.all(16),
                           itemCount: _sessions.length,
@@ -152,16 +172,23 @@ class _SessionsPageState extends State<SessionsPage> {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(
-            Icons.psychology_outlined,
-            size: 64,
-            color: Colors.grey[600],
+          Container(
+            padding: const EdgeInsets.all(24),
+            decoration: BoxDecoration(
+              color: _primary.withOpacity(0.08),
+              shape: BoxShape.circle,
+            ),
+            child: const Icon(
+              Icons.psychology_outlined,
+              size: 56,
+              color: _primary,
+            ),
           ),
-          const SizedBox(height: 16),
-          Text(
+          const SizedBox(height: 20),
+          const Text(
             'No soundscapes yet',
             style: TextStyle(
-              color: Colors.grey[400],
+              color: _textPrimary,
               fontSize: 18,
               fontWeight: FontWeight.bold,
             ),
@@ -170,11 +197,11 @@ class _SessionsPageState extends State<SessionsPage> {
           Text(
             'Create your first soundscape to get started',
             style: TextStyle(
-              color: Colors.grey[600],
+              color: _textSecondary,
               fontSize: 14,
             ),
           ),
-          const SizedBox(height: 24),
+          const SizedBox(height: 28),
           ElevatedButton.icon(
             onPressed: _navigateToNewSession,
             icon: const Icon(Icons.add, color: Colors.white),
@@ -183,11 +210,12 @@ class _SessionsPageState extends State<SessionsPage> {
               style: TextStyle(color: Colors.white),
             ),
             style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.blue,
-              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+              backgroundColor: _primary,
+              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
               shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(8),
+                borderRadius: BorderRadius.circular(10),
               ),
+              elevation: 0,
             ),
           ),
         ],
@@ -199,13 +227,14 @@ class _SessionsPageState extends State<SessionsPage> {
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
       decoration: BoxDecoration(
-        color: const Color(0xFF2d2d2d),
-        borderRadius: BorderRadius.circular(12),
+        color: _surface,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: _border),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.3),
+            color: Colors.black.withOpacity(0.05),
             blurRadius: 8,
-            offset: const Offset(0, 4),
+            offset: const Offset(0, 2),
           ),
         ],
       ),
@@ -213,7 +242,7 @@ class _SessionsPageState extends State<SessionsPage> {
         color: Colors.transparent,
         child: InkWell(
           onTap: () => _navigateToSessionDetails(session),
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: BorderRadius.circular(14),
           child: Padding(
             padding: const EdgeInsets.all(16),
             child: Row(
@@ -221,12 +250,12 @@ class _SessionsPageState extends State<SessionsPage> {
                 Container(
                   padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
-                    color: Colors.blue.withOpacity(0.2),
-                    borderRadius: BorderRadius.circular(8),
+                    color: _primary.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(10),
                   ),
                   child: const Icon(
                     Icons.psychology,
-                    color: Colors.blue,
+                    color: _primary,
                     size: 24,
                   ),
                 ),
@@ -238,47 +267,47 @@ class _SessionsPageState extends State<SessionsPage> {
                       Text(
                         session.name,
                         style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 18,
+                          color: _textPrimary,
+                          fontSize: 16,
                           fontWeight: FontWeight.bold,
                         ),
                       ),
-                      const SizedBox(height: 4),
+                      const SizedBox(height: 3),
                       Text(
                         session.activity,
-                        style: TextStyle(
-                          color: Colors.white70,
-                          fontSize: 14,
+                        style: const TextStyle(
+                          color: _textSecondary,
+                          fontSize: 13,
                         ),
                       ),
-                      const SizedBox(height: 4),
+                      const SizedBox(height: 6),
                       Row(
                         children: [
                           Icon(
-                            Icons.timer,
-                            size: 14,
-                            color: Colors.grey[600],
+                            Icons.timer_outlined,
+                            size: 13,
+                            color: _textTertiary,
                           ),
                           const SizedBox(width: 4),
                           Text(
                             session.formattedDuration,
-                            style: TextStyle(
-                              color: Colors.grey[600],
+                            style: const TextStyle(
+                              color: _textTertiary,
                               fontSize: 12,
                             ),
                           ),
-                          const SizedBox(width: 16),
+                          const SizedBox(width: 12),
                           Icon(
-                            Icons.music_note,
-                            size: 14,
-                            color: Colors.grey[600],
+                            Icons.music_note_outlined,
+                            size: 13,
+                            color: _textTertiary,
                           ),
                           const SizedBox(width: 4),
                           Expanded(
                             child: Text(
                               session.backgroundMusic,
-                              style: TextStyle(
-                                color: Colors.grey[600],
+                              style: const TextStyle(
+                                color: _textTertiary,
                                 fontSize: 12,
                               ),
                               overflow: TextOverflow.ellipsis,
@@ -289,9 +318,9 @@ class _SessionsPageState extends State<SessionsPage> {
                     ],
                   ),
                 ),
-                const Icon(
+                Icon(
                   Icons.chevron_right,
-                  color: Colors.grey,
+                  color: _textTertiary,
                 ),
               ],
             ),
@@ -301,4 +330,3 @@ class _SessionsPageState extends State<SessionsPage> {
     );
   }
 }
-

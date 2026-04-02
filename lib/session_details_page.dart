@@ -766,10 +766,10 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
         
         try {
           // Generate narration audio using ElevenLabs TTS
-          // Automatically selects a meditation-style voice (calm, soothing)
+          // Uses the voice chosen by the user, or auto-selects a meditation voice as fallback
           final generatedFilePath = await ElevenLabsService.generateMeditationNarration(
             text: widget.session.narrationText,
-            // voiceId is optional - will automatically select a meditation voice
+            voiceId: widget.session.narrationVoiceId,
           );
           
           if (generatedFilePath != null) {
@@ -1343,23 +1343,27 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
     }
     
     final narrationHash = _getNarrationHash(widget.session.narrationText);
-    final fileName = 'narration_${widget.session.id}_$narrationHash.mp3';
+    final voiceSuffix = widget.session.narrationVoiceId != null
+        ? '_${widget.session.narrationVoiceId}'
+        : '';
+    final fileName = 'narration_${widget.session.id}_$narrationHash$voiceSuffix.mp3';
     return '${audioDir.path}/$fileName';
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFF1a1a1a),
+      backgroundColor: const Color(0xFFF3E4D7),
       appBar: AppBar(
         title: Text(
           widget.session.name,
-          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+          style: const TextStyle(color: Color(0xFF2F2F2F), fontWeight: FontWeight.bold),
         ),
-        backgroundColor: const Color(0xFF2d2d2d),
+        backgroundColor: const Color(0xFFEDEAE6),
         elevation: 0,
+        surfaceTintColor: Colors.transparent,
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back, color: Colors.white),
+          icon: const Icon(Icons.arrow_back, color: Color(0xFF2F2F2F)),
           onPressed: () => Navigator.of(context).pop(),
         ),
       ),
@@ -1374,13 +1378,17 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
             Container(
               padding: const EdgeInsets.all(20),
               decoration: BoxDecoration(
-                color: const Color(0xFF2d2d2d),
-                borderRadius: BorderRadius.circular(12),
+                gradient: const LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [Color(0xFF7BC4B8), Color(0xFFB8A4D4)],
+                ),
+                borderRadius: BorderRadius.circular(20),
                 boxShadow: [
                   BoxShadow(
-                    color: Colors.black.withOpacity(0.3),
-                    blurRadius: 8,
-                    offset: const Offset(0, 4),
+                    color: const Color(0xFF7BC4B8).withOpacity(0.25),
+                    blurRadius: 18,
+                    offset: const Offset(0, 6),
                   ),
                 ],
               ),
@@ -1392,12 +1400,12 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
                       Container(
                         padding: const EdgeInsets.all(12),
                         decoration: BoxDecoration(
-                          color: Colors.blue.withOpacity(0.2),
-                          borderRadius: BorderRadius.circular(8),
+                          color: Colors.white.withOpacity(0.2),
+                          borderRadius: BorderRadius.circular(12),
                         ),
                         child: const Icon(
                           Icons.psychology,
-                          color: Colors.blue,
+                          color: Colors.white,
                           size: 28,
                         ),
                       ),
@@ -1410,7 +1418,7 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
                               widget.session.name,
                               style: const TextStyle(
                                 color: Colors.white,
-                                fontSize: 24,
+                                fontSize: 22,
                                 fontWeight: FontWeight.bold,
                               ),
                             ),
@@ -1418,8 +1426,8 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
                             Text(
                               widget.session.activity,
                               style: TextStyle(
-                                color: Colors.white70,
-                                fontSize: 16,
+                                color: Colors.white.withOpacity(0.85),
+                                fontSize: 15,
                               ),
                             ),
                           ],
@@ -1436,15 +1444,15 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
                           children: [
                             Icon(
                               Icons.timer,
-                              color: Colors.white70,
-                              size: 18,
+                              color: Colors.white.withOpacity(0.8),
+                              size: 16,
                             ),
-                            const SizedBox(width: 8),
+                            const SizedBox(width: 6),
                             Text(
                               widget.session.formattedDuration,
                               style: TextStyle(
-                                color: Colors.white70,
-                                fontSize: 14,
+                                color: Colors.white.withOpacity(0.8),
+                                fontSize: 13,
                               ),
                             ),
                           ],
@@ -1455,16 +1463,16 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
                           children: [
                             Icon(
                               Icons.calendar_today,
-                              color: Colors.white70,
-                              size: 18,
+                              color: Colors.white.withOpacity(0.8),
+                              size: 16,
                             ),
-                            const SizedBox(width: 8),
+                            const SizedBox(width: 6),
                             Expanded(
                               child: Text(
                                 _formatDate(widget.session.createdAt),
                                 style: TextStyle(
-                                  color: Colors.white70,
-                                  fontSize: 14,
+                                  color: Colors.white.withOpacity(0.8),
+                                  fontSize: 13,
                                 ),
                                 overflow: TextOverflow.ellipsis,
                               ),
@@ -1517,13 +1525,13 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
       // Loading overlay
       if (_isAnyAudioLoading)
             Container(
-              color: Colors.black.withOpacity(0.7),
+              color: const Color(0xFFF3E4D7).withOpacity(0.92),
               child: Center(
                 child: Column(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
                     const CircularProgressIndicator(
-                      color: Colors.blue,
+                      color: Color(0xFF7BC4B8),
                       strokeWidth: 4,
                     ),
                     const SizedBox(height: 16),
@@ -1532,7 +1540,7 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
                           ? 'Generating narration audio with AI...'
                           : 'Loading audio files...',
                       style: const TextStyle(
-                        color: Colors.white,
+                        color: Color(0xFF2F2F2F),
                         fontSize: 16,
                         fontWeight: FontWeight.w500,
                       ),
@@ -1550,13 +1558,14 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        color: const Color(0xFF2d2d2d),
-        borderRadius: BorderRadius.circular(12),
+        color: const Color(0xFFEDEAE6),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFFD9D0C8)),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.3),
+            color: Colors.black.withOpacity(0.05),
             blurRadius: 8,
-            offset: const Offset(0, 4),
+            offset: const Offset(0, 2),
           ),
         ],
       ),
@@ -1567,14 +1576,14 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
             children: [
               const Icon(
                 Icons.headphones,
-                color: Colors.blue,
+                color: Color(0xFF7BC4B8),
                 size: 24,
               ),
               const SizedBox(width: 12),
               const Text(
                 'Binaural Audio',
                 style: TextStyle(
-                  color: Colors.white,
+                  color: const Color(0xFF2F2F2F),
                   fontSize: 20,
                   fontWeight: FontWeight.bold,
                 ),
@@ -1585,23 +1594,23 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                   decoration: BoxDecoration(
-                    color: Colors.green.withOpacity(0.2),
+                    color: const Color(0xFF7BAF8E).withOpacity(0.2),
                     borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: Colors.green.withOpacity(0.5)),
+                    border: Border.all(color: const Color(0xFF7BAF8E).withOpacity(0.5)),
                   ),
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       const Icon(
                         Icons.swap_horiz,
-                        color: Colors.green,
+                        color: Color(0xFF7BAF8E),
                         size: 14,
                       ),
                       const SizedBox(width: 4),
                       Text(
                         _currentBinauralFile.toUpperCase(),
                         style: const TextStyle(
-                          color: Colors.green,
+                          color: Color(0xFF7BAF8E),
                           fontSize: 11,
                           fontWeight: FontWeight.bold,
                         ),
@@ -1618,7 +1627,7 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
             const Center(
               child: Padding(
                 padding: EdgeInsets.all(20),
-                child: CircularProgressIndicator(color: Colors.blue),
+                child: CircularProgressIndicator(color: Color(0xFF7BC4B8)),
               ),
             )
           else if (_audioPlayer == null)
@@ -1627,7 +1636,7 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
                 padding: EdgeInsets.all(20),
                 child: Text(
                   'Audio not loaded',
-                  style: TextStyle(color: Colors.white70),
+                  style: TextStyle(color: Color(0xFFA09890)),
                 ),
               ),
             )
@@ -1638,7 +1647,7 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
                 iconSize: 64,
                 icon: Icon(
                   _isPlaying ? Icons.pause_circle_filled : Icons.play_circle_filled,
-                  color: Colors.blue,
+                  color: Color(0xFF7BC4B8),
                 ),
                 onPressed: _togglePlayPause,
               ),
@@ -1649,9 +1658,9 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
             // Volume control
             Row(
               children: [
-                const Icon(Icons.volume_up, color: Colors.white70, size: 18),
+                const Icon(Icons.volume_up, color: const Color(0xFF7A7570), size: 18),
                 const SizedBox(width: 8),
-                const Text('Volume:', style: TextStyle(color: Colors.white70, fontSize: 14)),
+                const Text('Volume:', style: TextStyle(color: const Color(0xFF7A7570), fontSize: 14)),
                 const SizedBox(width: 8),
                 Expanded(
                   child: Slider(
@@ -1659,7 +1668,7 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
                     min: 0.0,
                     max: 1.0,
                     divisions: 50,
-                    activeColor: Colors.blue,
+                    activeColor: const Color(0xFF7BC4B8),
                     onChanged: (value) {
                       setState(() {
                         _volume = value;
@@ -1672,7 +1681,7 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
                   width: 45,
                   child: Text(
                     '${(_volume * 100).round()}%',
-                    style: const TextStyle(color: Colors.white70, fontSize: 12),
+                    style: const TextStyle(color: const Color(0xFF7A7570), fontSize: 12),
                     textAlign: TextAlign.end,
                   ),
                 ),
@@ -1684,9 +1693,9 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
             // Speed control
             Row(
               children: [
-                const Icon(Icons.speed, color: Colors.white70, size: 18),
+                const Icon(Icons.speed, color: const Color(0xFF7A7570), size: 18),
                 const SizedBox(width: 8),
-                const Text('Speed:', style: TextStyle(color: Colors.white70, fontSize: 14)),
+                const Text('Speed:', style: TextStyle(color: const Color(0xFF7A7570), fontSize: 14)),
                 const SizedBox(width: 8),
                 Expanded(
                   child: Slider(
@@ -1694,7 +1703,7 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
                     min: 0.5,
                     max: 2.0,
                     divisions: 30,
-                    activeColor: Colors.blue,
+                    activeColor: const Color(0xFF7BC4B8),
                     onChanged: (value) {
                       setState(() {
                         _speed = value;
@@ -1707,7 +1716,7 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
                   width: 45,
                   child: Text(
                     '${_speed.toStringAsFixed(1)}x',
-                    style: const TextStyle(color: Colors.white70, fontSize: 12),
+                    style: const TextStyle(color: const Color(0xFF7A7570), fontSize: 12),
                     textAlign: TextAlign.end,
                   ),
                 ),
@@ -1723,13 +1732,14 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        color: const Color(0xFF2d2d2d),
-        borderRadius: BorderRadius.circular(12),
+        color: const Color(0xFFEDEAE6),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFFD9D0C8)),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.3),
+            color: Colors.black.withOpacity(0.05),
             blurRadius: 8,
-            offset: const Offset(0, 4),
+            offset: const Offset(0, 2),
           ),
         ],
       ),
@@ -1740,7 +1750,7 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
             children: [
               const Icon(
                 Icons.music_note,
-                color: Colors.green,
+                color: Color(0xFF85C4A8),
                 size: 24,
               ),
               const SizedBox(width: 12),
@@ -1751,7 +1761,7 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
                     const Text(
                       'Background Music',
                       style: TextStyle(
-                        color: Colors.white,
+                        color: const Color(0xFF2F2F2F),
                         fontSize: 20,
                         fontWeight: FontWeight.bold,
                       ),
@@ -1760,7 +1770,7 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
                     Text(
                       widget.session.backgroundMusic,
                       style: TextStyle(
-                        color: Colors.white70,
+                        color: const Color(0xFF7A7570),
                         fontSize: 14,
                       ),
                     ),
@@ -1776,7 +1786,7 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
             const Center(
               child: Padding(
                 padding: EdgeInsets.all(20),
-                child: CircularProgressIndicator(color: Colors.green),
+                child: CircularProgressIndicator(color: Color(0xFF85C4A8)),
               ),
             )
           else if (_backgroundMusicPlayer == null)
@@ -1785,7 +1795,7 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
                 padding: EdgeInsets.all(20),
                 child: Text(
                   'Background music not available',
-                  style: TextStyle(color: Colors.white70),
+                  style: TextStyle(color: Color(0xFFA09890)),
                 ),
               ),
             )
@@ -1796,7 +1806,7 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
                 iconSize: 64,
                 icon: Icon(
                   _isPlayingBackground ? Icons.pause_circle_filled : Icons.play_circle_filled,
-                  color: Colors.green,
+                  color: Color(0xFF85C4A8),
                 ),
                 onPressed: _toggleBackgroundPlayPause,
               ),
@@ -1807,9 +1817,9 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
             // Volume control
             Row(
               children: [
-                const Icon(Icons.volume_up, color: Colors.white70, size: 18),
+                const Icon(Icons.volume_up, color: const Color(0xFF7A7570), size: 18),
                 const SizedBox(width: 8),
-                const Text('Volume:', style: TextStyle(color: Colors.white70, fontSize: 14)),
+                const Text('Volume:', style: TextStyle(color: const Color(0xFF7A7570), fontSize: 14)),
                 const SizedBox(width: 8),
                 Expanded(
                   child: Slider(
@@ -1817,7 +1827,7 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
                     min: 0.0,
                     max: 1.0,
                     divisions: 50,
-                    activeColor: Colors.green,
+                    activeColor: const Color(0xFF85C4A8),
                     onChanged: (value) {
                       setState(() {
                         _backgroundVolume = value;
@@ -1830,7 +1840,7 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
                   width: 45,
                   child: Text(
                     '${(_backgroundVolume * 100).round()}%',
-                    style: const TextStyle(color: Colors.white70, fontSize: 12),
+                    style: const TextStyle(color: const Color(0xFF7A7570), fontSize: 12),
                     textAlign: TextAlign.end,
                   ),
                 ),
@@ -1842,9 +1852,9 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
             // Speed control
             Row(
               children: [
-                const Icon(Icons.speed, color: Colors.white70, size: 18),
+                const Icon(Icons.speed, color: const Color(0xFF7A7570), size: 18),
                 const SizedBox(width: 8),
-                const Text('Speed:', style: TextStyle(color: Colors.white70, fontSize: 14)),
+                const Text('Speed:', style: TextStyle(color: const Color(0xFF7A7570), fontSize: 14)),
                 const SizedBox(width: 8),
                 Expanded(
                   child: Slider(
@@ -1852,7 +1862,7 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
                     min: 0.5,
                     max: 2.0,
                     divisions: 30,
-                    activeColor: Colors.green,
+                    activeColor: const Color(0xFF85C4A8),
                     onChanged: (value) {
                       setState(() {
                         _backgroundSpeed = value;
@@ -1865,7 +1875,7 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
                   width: 45,
                   child: Text(
                     '${_backgroundSpeed.toStringAsFixed(1)}x',
-                    style: const TextStyle(color: Colors.white70, fontSize: 12),
+                    style: const TextStyle(color: const Color(0xFF7A7570), fontSize: 12),
                     textAlign: TextAlign.end,
                   ),
                 ),
@@ -1881,13 +1891,14 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        color: const Color(0xFF2d2d2d),
-        borderRadius: BorderRadius.circular(12),
+        color: const Color(0xFFEDEAE6),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFFD9D0C8)),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.3),
+            color: Colors.black.withOpacity(0.05),
             blurRadius: 8,
-            offset: const Offset(0, 4),
+            offset: const Offset(0, 2),
           ),
         ],
       ),
@@ -1898,7 +1909,7 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
             children: [
               const Icon(
                 Icons.park,
-                color: Colors.teal,
+                color: Color(0xFF7BC4B8),
                 size: 24,
               ),
               const SizedBox(width: 12),
@@ -1909,7 +1920,7 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
                     const Text(
                       'Ambience',
                       style: TextStyle(
-                        color: Colors.white,
+                        color: const Color(0xFF2F2F2F),
                         fontSize: 20,
                         fontWeight: FontWeight.bold,
                       ),
@@ -1918,7 +1929,7 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
                     Text(
                       widget.session.backgroundAmbience,
                       style: TextStyle(
-                        color: Colors.white70,
+                        color: const Color(0xFF7A7570),
                         fontSize: 14,
                       ),
                     ),
@@ -1934,7 +1945,7 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
             const Center(
               child: Padding(
                 padding: EdgeInsets.all(20),
-                child: CircularProgressIndicator(color: Colors.teal),
+                child: CircularProgressIndicator(color: Color(0xFF7BC4B8)),
               ),
             )
           else if (_natureAmbiencePlayer == null)
@@ -1943,7 +1954,7 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
                 padding: EdgeInsets.all(20),
                 child: Text(
                   'Ambience not available',
-                  style: TextStyle(color: Colors.white70),
+                  style: TextStyle(color: Color(0xFFA09890)),
                 ),
               ),
             )
@@ -1954,7 +1965,7 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
                 iconSize: 64,
                 icon: Icon(
                   _isPlayingAmbience ? Icons.pause_circle_filled : Icons.play_circle_filled,
-                  color: Colors.teal,
+                  color: Color(0xFF7BC4B8),
                 ),
                 onPressed: _toggleAmbiencePlayPause,
               ),
@@ -1965,9 +1976,9 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
             // Volume control
             Row(
               children: [
-                const Icon(Icons.volume_up, color: Colors.white70, size: 18),
+                const Icon(Icons.volume_up, color: const Color(0xFF7A7570), size: 18),
                 const SizedBox(width: 8),
-                const Text('Volume:', style: TextStyle(color: Colors.white70, fontSize: 14)),
+                const Text('Volume:', style: TextStyle(color: const Color(0xFF7A7570), fontSize: 14)),
                 const SizedBox(width: 8),
                 Expanded(
                   child: Slider(
@@ -1975,7 +1986,7 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
                     min: 0.0,
                     max: 1.0,
                     divisions: 50,
-                    activeColor: Colors.teal,
+                    activeColor: const Color(0xFF7BC4B8),
                     onChanged: (value) {
                       setState(() {
                         _ambienceVolume = value;
@@ -1988,7 +1999,7 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
                   width: 45,
                   child: Text(
                     '${(_ambienceVolume * 100).round()}%',
-                    style: const TextStyle(color: Colors.white70, fontSize: 12),
+                    style: const TextStyle(color: const Color(0xFF7A7570), fontSize: 12),
                     textAlign: TextAlign.end,
                   ),
                 ),
@@ -2000,9 +2011,9 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
             // Speed control
             Row(
               children: [
-                const Icon(Icons.speed, color: Colors.white70, size: 18),
+                const Icon(Icons.speed, color: const Color(0xFF7A7570), size: 18),
                 const SizedBox(width: 8),
-                const Text('Speed:', style: TextStyle(color: Colors.white70, fontSize: 14)),
+                const Text('Speed:', style: TextStyle(color: const Color(0xFF7A7570), fontSize: 14)),
                 const SizedBox(width: 8),
                 Expanded(
                   child: Slider(
@@ -2010,7 +2021,7 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
                     min: 0.5,
                     max: 2.0,
                     divisions: 30,
-                    activeColor: Colors.teal,
+                    activeColor: const Color(0xFF7BC4B8),
                     onChanged: (value) {
                       setState(() {
                         _ambienceSpeed = value;
@@ -2023,7 +2034,7 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
                   width: 45,
                   child: Text(
                     '${_ambienceSpeed.toStringAsFixed(1)}x',
-                    style: const TextStyle(color: Colors.white70, fontSize: 12),
+                    style: const TextStyle(color: const Color(0xFF7A7570), fontSize: 12),
                     textAlign: TextAlign.end,
                   ),
                 ),
@@ -2039,13 +2050,14 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        color: const Color(0xFF2d2d2d),
-        borderRadius: BorderRadius.circular(12),
+        color: const Color(0xFFEDEAE6),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFFD9D0C8)),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.3),
+            color: Colors.black.withOpacity(0.05),
             blurRadius: 8,
-            offset: const Offset(0, 4),
+            offset: const Offset(0, 2),
           ),
         ],
       ),
@@ -2056,14 +2068,14 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
             children: [
               const Icon(
                 Icons.record_voice_over,
-                color: Colors.purple,
+                color: Color(0xFFB8A4D4),
                 size: 24,
               ),
               const SizedBox(width: 12),
               const Text(
                 'Narration',
                 style: TextStyle(
-                  color: Colors.white,
+                  color: const Color(0xFF2F2F2F),
                   fontSize: 20,
                   fontWeight: FontWeight.bold,
                 ),
@@ -2077,7 +2089,7 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
             const Center(
               child: Padding(
                 padding: EdgeInsets.all(20),
-                child: CircularProgressIndicator(color: Colors.purple),
+                child: CircularProgressIndicator(color: Color(0xFFB8A4D4)),
               ),
             )
           else if (_narrationPlayer == null)
@@ -2086,7 +2098,7 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
                 padding: EdgeInsets.all(20),
                 child: Text(
                   'Narration not available',
-                  style: TextStyle(color: Colors.white70),
+                  style: TextStyle(color: Color(0xFFA09890)),
                 ),
               ),
             )
@@ -2097,7 +2109,7 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
                 iconSize: 64,
                 icon: Icon(
                   _isPlayingNarration ? Icons.pause_circle_filled : Icons.play_circle_filled,
-                  color: Colors.purple,
+                  color: Color(0xFFB8A4D4),
                 ),
                 onPressed: _toggleNarrationPlayPause,
               ),
@@ -2108,9 +2120,9 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
             // Volume control
             Row(
               children: [
-                const Icon(Icons.volume_up, color: Colors.white70, size: 18),
+                const Icon(Icons.volume_up, color: const Color(0xFF7A7570), size: 18),
                 const SizedBox(width: 8),
-                const Text('Volume:', style: TextStyle(color: Colors.white70, fontSize: 14)),
+                const Text('Volume:', style: TextStyle(color: const Color(0xFF7A7570), fontSize: 14)),
                 const SizedBox(width: 8),
                 Expanded(
                   child: Slider(
@@ -2118,7 +2130,7 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
                     min: 0.0,
                     max: 1.0,
                     divisions: 50,
-                    activeColor: Colors.purple,
+                    activeColor: const Color(0xFFB8A4D4),
                     onChanged: (value) {
                       setState(() {
                         _narrationVolume = value;
@@ -2131,7 +2143,7 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
                   width: 45,
                   child: Text(
                     '${(_narrationVolume * 100).round()}%',
-                    style: const TextStyle(color: Colors.white70, fontSize: 12),
+                    style: const TextStyle(color: const Color(0xFF7A7570), fontSize: 12),
                     textAlign: TextAlign.end,
                   ),
                 ),
@@ -2143,9 +2155,9 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
             // Speed control
             Row(
               children: [
-                const Icon(Icons.speed, color: Colors.white70, size: 18),
+                const Icon(Icons.speed, color: const Color(0xFF7A7570), size: 18),
                 const SizedBox(width: 8),
-                const Text('Speed:', style: TextStyle(color: Colors.white70, fontSize: 14)),
+                const Text('Speed:', style: TextStyle(color: const Color(0xFF7A7570), fontSize: 14)),
                 const SizedBox(width: 8),
                 Expanded(
                   child: Slider(
@@ -2153,7 +2165,7 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
                     min: 0.5,
                     max: 2.0,
                     divisions: 30,
-                    activeColor: Colors.purple,
+                    activeColor: const Color(0xFFB8A4D4),
                     onChanged: (value) {
                       setState(() {
                         _narrationSpeed = value;
@@ -2166,7 +2178,7 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
                   width: 45,
                   child: Text(
                     '${_narrationSpeed.toStringAsFixed(1)}x',
-                    style: const TextStyle(color: Colors.white70, fontSize: 12),
+                    style: const TextStyle(color: const Color(0xFF7A7570), fontSize: 12),
                     textAlign: TextAlign.end,
                   ),
                 ),
@@ -2182,13 +2194,14 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        color: const Color(0xFF2d2d2d),
-        borderRadius: BorderRadius.circular(12),
+        color: const Color(0xFFEDEAE6),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFFD9D0C8)),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.3),
+            color: Colors.black.withOpacity(0.05),
             blurRadius: 8,
-            offset: const Offset(0, 4),
+            offset: const Offset(0, 2),
           ),
         ],
       ),
@@ -2254,12 +2267,12 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
                 ),
               ),
               style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.green,
+                backgroundColor: const Color(0xFF7BAF8E),
                 foregroundColor: Colors.white,
                 shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
+                  borderRadius: BorderRadius.circular(14),
                 ),
-                elevation: 4,
+                elevation: 2,
               ),
             ),
             const SizedBox(height: 12),
@@ -2271,7 +2284,7 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
                       width: 20,
                       height: 20,
                       child: CircularProgressIndicator(
-                        color: Colors.white,
+                        color: const Color(0xFF2F2F2F),
                         strokeWidth: 2,
                       ),
                     )
@@ -2287,12 +2300,12 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
                 ),
               ),
               style: ElevatedButton.styleFrom(
-                backgroundColor: _isExporting ? Colors.grey : Colors.blue,
+                backgroundColor: _isExporting ? const Color(0xFFBDB5AF) : const Color(0xFF7BC4B8),
                 foregroundColor: Colors.white,
                 shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
+                  borderRadius: BorderRadius.circular(14),
                 ),
-                elevation: 4,
+                elevation: 2,
               ),
             ),
           ] else ...[
@@ -2314,12 +2327,12 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
                       ),
                     ),
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.orange,
+                      backgroundColor: const Color(0xFFD4A76A),
                       foregroundColor: Colors.white,
                       shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
+                        borderRadius: BorderRadius.circular(14),
                       ),
-                      elevation: 4,
+                      elevation: 2,
                     ),
                   ),
                 ),
@@ -2339,12 +2352,12 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
                       ),
                     ),
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.red,
+                      backgroundColor: const Color(0xFFD4867A),
                       foregroundColor: Colors.white,
                       shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
+                        borderRadius: BorderRadius.circular(14),
                       ),
-                      elevation: 4,
+                      elevation: 2,
                     ),
                   ),
                 ),
@@ -2367,12 +2380,12 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
                   ),
                 ),
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.green,
+                  backgroundColor: const Color(0xFF7BAF8E),
                   foregroundColor: Colors.white,
                   shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
+                    borderRadius: BorderRadius.circular(14),
                   ),
-                  elevation: 4,
+                  elevation: 2,
                 ),
               ),
           ],
@@ -2385,13 +2398,14 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        color: const Color(0xFF2d2d2d),
-        borderRadius: BorderRadius.circular(12),
+        color: const Color(0xFFEDEAE6),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFFD9D0C8)),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.3),
+            color: Colors.black.withOpacity(0.05),
             blurRadius: 8,
-            offset: const Offset(0, 4),
+            offset: const Offset(0, 2),
           ),
         ],
       ),
@@ -2402,14 +2416,14 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
             children: [
               const Icon(
                 Icons.favorite,
-                color: Colors.red,
+                color: Color(0xFFD4867A),
                 size: 24,
               ),
               const SizedBox(width: 12),
               const Text(
                 'HealthKit Monitor',
                 style: TextStyle(
-                  color: Colors.white,
+                  color: const Color(0xFF2F2F2F),
                   fontSize: 20,
                   fontWeight: FontWeight.bold,
                 ),
@@ -2426,7 +2440,7 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
                 width: 12,
                 height: 12,
                 decoration: BoxDecoration(
-                  color: _isObserverActive ? Colors.green : Colors.red,
+                  color: _isObserverActive ? const Color(0xFF7BAF8E) : const Color(0xFFD4867A),
                   shape: BoxShape.circle,
                 ),
               ),
@@ -2438,8 +2452,8 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
                     Text(
                       _isObserverActive ? 'Observer Active' : 'Observer Inactive',
                       style: TextStyle(
-                        color: _isObserverActive ? Colors.green : Colors.red,
-                        fontSize: 14,
+                      color: _isObserverActive ? const Color(0xFF7BAF8E) : const Color(0xFFD4867A),
+                      fontSize: 14,
                         fontWeight: FontWeight.w500,
                       ),
                     ),
@@ -2447,7 +2461,7 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
                       Text(
                         _observerStatus,
                         style: TextStyle(
-                          color: Colors.white60,
+                          color: const Color(0xFFA09890),
                           fontSize: 12,
                         ),
                       ),
@@ -2458,7 +2472,7 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
                 Text(
                   '${_sessionHeartRateData.length} readings',
                   style: const TextStyle(
-                    color: Colors.white70,
+                    color: const Color(0xFF7A7570),
                     fontSize: 12,
                   ),
                 ),
@@ -2474,7 +2488,7 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
                 padding: EdgeInsets.all(20),
                 child: Text(
                   'No heart rate data yet',
-                  style: TextStyle(color: Colors.white70),
+                  style: TextStyle(color: Color(0xFFA09890)),
                 ),
               ),
             )
@@ -2482,7 +2496,7 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
             const Text(
               'Recent Heart Rate Readings',
               style: TextStyle(
-                color: Colors.white,
+                color: const Color(0xFF2F2F2F),
                 fontSize: 16,
                 fontWeight: FontWeight.bold,
               ),
@@ -2501,9 +2515,9 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
       margin: const EdgeInsets.only(bottom: 8),
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: const Color(0xFF1a1a1a),
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: zone.color.withOpacity(0.3)),
+        color: const Color(0xFFF3E4D7),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: zone.color.withOpacity(0.25)),
       ),
       child: Row(
         children: [
@@ -2525,7 +2539,7 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
                     Text(
                       '${data.value.toStringAsFixed(0)} BPM',
                       style: const TextStyle(
-                        color: Colors.white,
+                        color: const Color(0xFF2F2F2F),
                         fontSize: 16,
                         fontWeight: FontWeight.bold,
                       ),
@@ -2552,7 +2566,7 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
                 Text(
                   '${data.formattedDate} at ${data.formattedTime}',
                   style: const TextStyle(
-                    color: Colors.white70,
+                    color: const Color(0xFF7A7570),
                     fontSize: 12,
                   ),
                 ),
@@ -2568,13 +2582,14 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        color: const Color(0xFF2d2d2d),
-        borderRadius: BorderRadius.circular(12),
+        color: const Color(0xFFEDEAE6),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFFD9D0C8)),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.3),
+            color: Colors.black.withOpacity(0.05),
             blurRadius: 8,
-            offset: const Offset(0, 4),
+            offset: const Offset(0, 2),
           ),
         ],
       ),
@@ -2585,14 +2600,14 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
             children: [
               const Icon(
                 Icons.psychology,
-                color: Colors.purple,
+                color: Color(0xFFB8A4D4),
                 size: 24,
               ),
               const SizedBox(width: 12),
               const Text(
                 'AI Heart Rate Analysis',
                 style: TextStyle(
-                  color: Colors.white,
+                  color: const Color(0xFF2F2F2F),
                   fontSize: 20,
                   fontWeight: FontWeight.bold,
                 ),
@@ -2608,11 +2623,11 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
                 padding: EdgeInsets.all(20),
                 child: Column(
                   children: [
-                    CircularProgressIndicator(color: Colors.purple),
+                    CircularProgressIndicator(color: Color(0xFFB8A4D4)),
                     SizedBox(height: 12),
                     Text(
                       'Analyzing heart rate data...',
-                      style: TextStyle(color: Colors.white70),
+                      style: TextStyle(color: Color(0xFFA09890)),
                     ),
                   ],
                 ),
@@ -2646,7 +2661,7 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
                   const SizedBox(height: 8),
                   Text(
                     _aiAnalysisError!,
-                    style: const TextStyle(color: Colors.white70, fontSize: 12),
+                    style: const TextStyle(color: const Color(0xFF7A7570), fontSize: 12),
                   ),
                 ],
               ),
@@ -2655,22 +2670,22 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
             Container(
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
-                color: Colors.purple.withOpacity(0.1),
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: Colors.purple.withOpacity(0.3)),
+                color: const Color(0xFFB8A4D4).withOpacity(0.12),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: const Color(0xFFB8A4D4).withOpacity(0.35)),
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Row(
                     children: [
-                      const Icon(Icons.insights, color: Colors.purple, size: 20),
+                      const Icon(Icons.insights, color: Color(0xFFB8A4D4), size: 20),
                       const SizedBox(width: 8),
                       if (_sessionStartTime != null)
                         Text(
                           'Analysis (${_formatElapsedTime(DateTime.now().difference(_sessionStartTime!))})',
                           style: const TextStyle(
-                            color: Colors.purple,
+                            color: const Color(0xFFB8A4D4),
                             fontSize: 14,
                             fontWeight: FontWeight.bold,
                           ),
@@ -2681,7 +2696,7 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
                   Text(
                     _aiAnalysis!,
                     style: const TextStyle(
-                      color: Colors.white,
+                      color: const Color(0xFF2F2F2F),
                       fontSize: 14,
                       height: 1.5,
                     ),
