@@ -173,15 +173,8 @@ class _NewSessionPageState extends State<NewSessionPage> {
 
     debugPrint('No preview asset found for "$selectedName" in "$folder".');
     return null;
-  String _getBackgroundMusicFilename(String musicName) {
-    if (musicName == 'None') return '';
-    return '${musicName.toLowerCase().replaceAll(' ', '-')}.mp3';
   }
-  
-  String _getBackgroundAmbienceFilename(String ambienceName) {
-    if (ambienceName == 'None') return '';
-    return '${ambienceName.toLowerCase().replaceAll(' ', '-')}.mp3';
-  }
+
   
   Future<void> _playBackgroundMusicPreview() async {
     if (_selectedBackgroundMusic == null || 
