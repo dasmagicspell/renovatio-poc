@@ -1,11 +1,14 @@
 import 'dart:io';
 import 'package:path_provider/path_provider.dart';
 import '../models/binaural_preset.dart';
+import '../models/session.dart';
 import 'ffmpeg_executor.dart';
 
 class BinauralAudioGenerator {
   static const int _durationSeconds = 2700; // 45 minutes (default for activities not in short list)
   static const int _shortDurationSeconds = 30; // 30 seconds for loopable activities
+  /// Loop length for per-session soundscapes (matches [generateSessionBinauralClip] default).
+  static const int sessionLoopDurationSeconds = 30;
   static const int _sampleRate = 44100;
   static const String _audioFormat = 'mp3';
   
@@ -62,8 +65,8 @@ class BinauralAudioGenerator {
       
       try {
         final success = await _generateBinauralAudio(
-          leftFrequency: preset.leftFrequency,
-          rightFrequency: preset.rightFrequency,
+          leftFrequency: preset.leftFrequency.toDouble(),
+          rightFrequency: preset.rightFrequency.toDouble(),
           outputPath: outputPath,
           durationSeconds: duration,
         );
@@ -82,13 +85,61 @@ class BinauralAudioGenerator {
     
     return results;
   }
+
+  static const String _sessionBinauralSubdir = 'binaural_sessions';
+
+  /// Relative path under app documents: `binaural_sessions/<sessionId>.mp3`.
+  /// Use the same [sessionId] as [Session.id] and [generateSessionBinauralClip].
+  static String relativePathForSessionBinauralClip(String sessionId) =>
+      '$_sessionBinauralSubdir/$sessionId.$_audioFormat';
+
+  /// Path to the looped MP3 for a [Session] created with custom base/beat frequencies.
+  static Future<String> sessionBinauralClipFilePath(String sessionId) async {
+    final documentsDir = await getApplicationDocumentsDirectory();
+    final dir = Directory('${documentsDir.path}/$_sessionBinauralSubdir');
+    if (!await dir.exists()) {
+      await dir.create(recursive: true);
+    }
+    return '${dir.path}/$sessionId.$_audioFormat';
+  }
+
+  /// Resolves the absolute path to the session binaural clip on disk.
+  /// Prefers [Session.binauralClipRelativePath] when set (saved at creation time).
+  static Future<String> absolutePathForSessionBinauralClip(Session session) async {
+    final documentsDir = await getApplicationDocumentsDirectory();
+    final rel = session.binauralClipRelativePath?.trim();
+    if (rel != null && rel.isNotEmpty) {
+      return '${documentsDir.path}/$rel';
+    }
+    if (session.hasCustomBinauralClip) {
+      return sessionBinauralClipFilePath(session.id);
+    }
+    throw StateError('Session has no custom binaural clip path');
+  }
+
+  /// Generates a short stereo binaural clip (left = [baseFrequencyHz], right = base + beat)
+  /// for playback during a session; file name is tied to [sessionId].
+  static Future<bool> generateSessionBinauralClip({
+    required String sessionId,
+    required double baseFrequencyHz,
+    required double beatFrequencyHz,
+    int durationSeconds = sessionLoopDurationSeconds,
+  }) async {
+    final outputPath = await sessionBinauralClipFilePath(sessionId);
+    return _generateBinauralAudio(
+      leftFrequency: baseFrequencyHz,
+      rightFrequency: baseFrequencyHz + beatFrequencyHz,
+      outputPath: outputPath,
+      durationSeconds: durationSeconds,
+    );
+  }
   
   /// Generate a single binaural audio file using FFmpeg
   /// For seamless looping, the duration should be an exact number of cycles
   /// Sine waves naturally loop seamlessly if the duration is a multiple of the period
   static Future<bool> _generateBinauralAudio({
-    required int leftFrequency,
-    required int rightFrequency,
+    required double leftFrequency,
+    required double rightFrequency,
     required String outputPath,
     required int durationSeconds,
   }) async {
@@ -99,9 +150,11 @@ class BinauralAudioGenerator {
       // - Encode as MP3: -f mp3 forces the muxer; -c:a libmp3lame (needs ffmpeg_kit with GPL/audio)
       // - For seamless looping, we ensure the sine waves complete full cycles
       
+      final leftF = leftFrequency.toString();
+      final rightF = rightFrequency.toString();
       final command = 
-          '-f lavfi -i "sine=frequency=$leftFrequency:duration=$durationSeconds:sample_rate=$_sampleRate" '
-          '-f lavfi -i "sine=frequency=$rightFrequency:duration=$durationSeconds:sample_rate=$_sampleRate" '
+          '-f lavfi -i "sine=frequency=$leftF:duration=$durationSeconds:sample_rate=$_sampleRate" '
+          '-f lavfi -i "sine=frequency=$rightF:duration=$durationSeconds:sample_rate=$_sampleRate" '
           '-filter_complex "[0:a][1:a]amerge=inputs=2,channelmap=0|1[out]" '
           '-map "[out]" '
           '-ar $_sampleRate '

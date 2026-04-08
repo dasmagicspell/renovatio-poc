@@ -7,6 +7,8 @@ import 'models/session.dart';
 import 'services/session_storage_service.dart';
 import 'services/elevenlabs_service.dart';
 import 'services/config_service.dart';
+import 'services/binaural_audio_generator.dart';
+import 'services/binaural_goal_frequencies.dart';
 import 'session_details_page.dart';
 
 class NewSessionPage extends StatefulWidget {
@@ -22,6 +24,9 @@ class _NewSessionPageState extends State<NewSessionPage> {
   final _narrationTextController = TextEditingController();
   
   String? _selectedActivity;
+  /// Carrier frequency (Hz) for the binaural tone; used when generating the session clip.
+  double _baseFrequencyHz = 200.0;
+  bool _isCreatingSoundscape = false;
   double _durationMinutes = 15.0;
   String? _selectedBackgroundMusic;
   String? _selectedBackgroundAmbience;
@@ -349,45 +354,90 @@ class _NewSessionPageState extends State<NewSessionPage> {
   }
   
   Future<void> _createSession() async {
-    if (_formKey.currentState!.validate()) {
-      try {
-        final session = Session(
-          id: const Uuid().v4(),
-          name: _sessionNameController.text.trim(),
-          activity: _selectedActivity!,
-          durationMinutes: _durationMinutes.toInt(),
-          backgroundMusic: _selectedBackgroundMusic!,
-          backgroundAmbience: _selectedBackgroundAmbience ?? 'None',
-          narrationText: _narrationTextController.text.trim(),
-          narrationVoiceId: _selectedVoice?.voiceId,
-          createdAt: DateTime.now(),
-        );
-        
-        await SessionStorageService.saveSession(session);
-        
+    if (!(_formKey.currentState?.validate() ?? false)) {
+      return;
+    }
+    if (_isCreatingSoundscape) {
+      return;
+    }
+
+    setState(() {
+      _isCreatingSoundscape = true;
+    });
+
+    try {
+      final sessionId = const Uuid().v4();
+      final clipRelativePath =
+          BinauralAudioGenerator.relativePathForSessionBinauralClip(sessionId);
+      final beatHz = BinauralGoalFrequencies.beatHzForGoal(_selectedActivity!);
+
+      final generated = await BinauralAudioGenerator.generateSessionBinauralClip(
+        sessionId: sessionId,
+        baseFrequencyHz: _baseFrequencyHz,
+        beatFrequencyHz: beatHz,
+      );
+
+      if (!generated) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
-              content: Text('Soundscape created successfully!'),
-              backgroundColor: Colors.green,
-            ),
-          );
-          
-          Navigator.of(context).pushReplacement(
-            MaterialPageRoute(
-              builder: (context) => SessionDetailsPage(session: session),
-            ),
-          );
-        }
-      } catch (e) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Error creating soundscape: $e'),
+              content: Text(
+                'Could not generate binaural audio. '
+                'If you are on desktop, ensure ffmpeg is installed and on PATH.',
+              ),
               backgroundColor: Colors.red,
+              duration: Duration(seconds: 5),
             ),
           );
         }
+        return;
+      }
+
+      final session = Session(
+        id: sessionId,
+        name: _sessionNameController.text.trim(),
+        activity: _selectedActivity!,
+        durationMinutes: _durationMinutes.toInt(),
+        backgroundMusic: _selectedBackgroundMusic!,
+        backgroundAmbience: _selectedBackgroundAmbience ?? 'None',
+        narrationText: _narrationTextController.text.trim(),
+        narrationVoiceId: _selectedVoice?.voiceId,
+        createdAt: DateTime.now(),
+        binauralBaseFrequencyHz: _baseFrequencyHz,
+        binauralBeatFrequencyHz: beatHz,
+        binauralClipRelativePath: clipRelativePath,
+      );
+
+      await SessionStorageService.saveSession(session);
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Soundscape created successfully!'),
+            backgroundColor: Colors.green,
+          ),
+        );
+
+        Navigator.of(context).pushReplacement(
+          MaterialPageRoute(
+            builder: (context) => SessionDetailsPage(session: session),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error creating soundscape: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isCreatingSoundscape = false;
+        });
       }
     }
   }
@@ -578,18 +628,66 @@ class _NewSessionPageState extends State<NewSessionPage> {
                           children: [
                             Icon(Icons.graphic_eq, size: 16, color: _primary),
                             const SizedBox(width: 8),
-                            Text(
-                              'Binaural frequency: ${_getFrequencyForActivity(_selectedActivity!)}',
-                              style: const TextStyle(
-                                color: _primary,
-                                fontSize: 13,
-                                fontWeight: FontWeight.w500,
+                            Expanded(
+                              child: Text(
+                                'Beat: ${_getFrequencyForActivity(_selectedActivity!)} '
+                                '(${BinauralGoalFrequencies.beatHzForGoal(_selectedActivity!)} Hz)',
+                                style: const TextStyle(
+                                  color: _primary,
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w500,
+                                ),
                               ),
                             ),
                           ],
                         ),
                       ),
                     ],
+                    const SizedBox(height: 16),
+                    _buildFieldLabel('BASE FREQUENCY (CARRIER)'),
+                    const SizedBox(height: 8),
+                    SliderTheme(
+                      data: SliderTheme.of(context).copyWith(
+                        activeTrackColor: _primary,
+                        inactiveTrackColor: _primary.withOpacity(0.15),
+                        thumbColor: _primary,
+                        overlayColor: _primary.withOpacity(0.12),
+                        valueIndicatorColor: _primary,
+                        valueIndicatorTextStyle: const TextStyle(color: Colors.white),
+                      ),
+                      child: Slider(
+                        value: _baseFrequencyHz,
+                        min: 120,
+                        max: 440,
+                        divisions: 320,
+                        label: '${_baseFrequencyHz.round()} Hz',
+                        onChanged: (value) {
+                          setState(() {
+                            _baseFrequencyHz = value;
+                          });
+                        },
+                      ),
+                    ),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text('120 Hz', style: TextStyle(color: _textSecondary, fontSize: 12)),
+                        Text(
+                          '${_baseFrequencyHz.round()} Hz',
+                          style: const TextStyle(
+                            color: _textPrimary,
+                            fontSize: 14,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        Text('440 Hz', style: TextStyle(color: _textSecondary, fontSize: 12)),
+                      ],
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      'A ${BinauralAudioGenerator.sessionLoopDurationSeconds}s loop will be generated and played on repeat.',
+                      style: TextStyle(color: _textSecondary, fontSize: 12),
+                    ),
                   ],
                 ),
               ),
@@ -827,11 +925,20 @@ class _NewSessionPageState extends State<NewSessionPage> {
               SizedBox(
                 width: double.infinity,
                 child: ElevatedButton.icon(
-                  onPressed: _createSession,
-                  icon: const Icon(Icons.check_circle, color: Colors.white),
-                  label: const Text(
-                    'Create Soundscape',
-                    style: TextStyle(
+                  onPressed: _isCreatingSoundscape ? null : _createSession,
+                  icon: _isCreatingSoundscape
+                      ? const SizedBox(
+                          width: 22,
+                          height: 22,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Colors.white,
+                          ),
+                        )
+                      : const Icon(Icons.check_circle, color: Colors.white),
+                  label: Text(
+                    _isCreatingSoundscape ? 'Generating binaural audio…' : 'Create Soundscape',
+                    style: const TextStyle(
                       color: Colors.white,
                       fontSize: 17,
                       fontWeight: FontWeight.bold,

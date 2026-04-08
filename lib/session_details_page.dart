@@ -314,137 +314,71 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
     });
     
     try {
-      // Get the activity name in lowercase
-      final activityName = widget.session.activity.toLowerCase();
-      
-      // Use provided fileType or default to current
-      final audioType = fileType ?? _currentBinauralFile;
-      
-      // First, try to get the generated MP3 file from documents directory
-      String? audioFilePath = await BinauralAudioGenerator.getAudioFilePath(
-        activityName: activityName,
-        presetName: audioType,
-      );
-      
-      // Debug: Log the path we're checking
-      if (audioFilePath == null) {
-        final documentsDir = await getApplicationDocumentsDirectory();
-        final expectedPath = '${documentsDir.path}/binaural/$activityName/${activityName}_$audioType.mp3';
-        print('🔍 Checking for generated file at: $expectedPath');
-        
-        // Check if directory exists
-        final binauralDir = Directory('${documentsDir.path}/binaural/$activityName');
-        if (await binauralDir.exists()) {
-          print('📁 Binaural directory exists, listing files:');
-          final files = await binauralDir.list().toList();
-          for (var file in files) {
-            print('   - ${file.path}');
-          }
-        } else {
-          print('❌ Binaural directory does not exist: ${binauralDir.path}');
-        }
-      }
-      
-      // If generated file doesn't exist, fall back to assets (for backward compatibility)
-      if (audioFilePath == null) {
-        print('Generated audio file not found, trying assets...');
-        // Construct the asset path: assets/audio/binaural/generated/{activity}/{activity}_{type}.mp3
-        // Note: activityName is already lowercase from widget.session.activity.toLowerCase()
-        final assetPath = 'assets/audio/binaural/generated/$activityName/${activityName}_$audioType.mp3';
-        print('🔍 Attempting to load asset from: $assetPath');
-        
-        // For large files, copy asset to temporary directory first
-        // This avoids AVFoundation errors with very large asset files
-        final tempDir = await getTemporaryDirectory();
-        // Sanitize activity name for temp file (replace spaces with underscores)
-        final sanitizedActivityName = activityName.replaceAll(' ', '_');
-        final tempFile = File('${tempDir.path}/${sanitizedActivityName}_$audioType.mp3');
-        
-        // Check if file already exists in temp (to avoid re-copying)
-        if (!await tempFile.exists()) {
+      String? audioFilePath;
+      late final String resolvedBinauralLabel;
+
+      if (widget.session.hasCustomBinauralClip) {
+        final path =
+            await BinauralAudioGenerator.absolutePathForSessionBinauralClip(widget.session);
+        final clipFile = File(path);
+        if (!await clipFile.exists()) {
+          print(
+            '❌ Custom binaural clip missing (expected file on disk):\n'
+            '   $path\n'
+            '   On macOS, paste the directory into Finder → Go → Go to Folder… to inspect.',
+          );
+          setState(() {
+            _isLoading = false;
+            _audioPlayer = null;
+          });
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text('Loading audio file ($audioType)... This may take a moment for large files.'),
-                backgroundColor: Colors.blue,
-                duration: const Duration(seconds: 2),
+              const SnackBar(
+                content: Text(
+                  'Binaural audio file for this soundscape is missing. '
+                  'Create a new soundscape to regenerate it.',
+                ),
+                backgroundColor: Colors.orange,
+                duration: Duration(seconds: 5),
               ),
             );
           }
-          
-          try {
-            // Copy asset to temporary file
-            print('📦 Loading asset: $assetPath');
-            final byteData = await rootBundle.load(assetPath);
-            print('✅ Asset loaded successfully (${byteData.lengthInBytes} bytes)');
-            await tempFile.writeAsBytes(byteData.buffer.asUint8List());
-            print('✅ Audio file copied to: ${tempFile.path}');
-            audioFilePath = tempFile.path;
-          } catch (assetError) {
-            print('❌ Error loading from assets: $assetError');
-            print('   Tried path: $assetPath');
-            print('   Activity name: "$activityName"');
-            print('   Audio type: $audioType');
-            
-            // Try to provide more helpful error information
-            String errorMessage = 'Binaural audio not available';
-            if (assetError.toString().contains('Unable to load asset')) {
-              errorMessage = 'Audio file not found in assets';
-              print('   💡 Hint: Make sure the file exists at: $assetPath');
-              print('   💡 Hint: Check that pubspec.yaml includes: assets/audio/binaural/generated/');
-            } else if (assetError.toString().contains('space') || assetError.toString().contains(' ')) {
-              errorMessage = 'Issue with file path (spaces in name)';
-              print('   💡 Hint: Directory or file name contains spaces');
-            }
-            
-            // Binaural audio is optional - continue without it but inform the user
-            setState(() {
-              _isLoading = false;
-              _audioPlayer = null; // Clear player since we couldn't load audio
-            });
-            
-            if (mounted) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        '$errorMessage for "$activityName"',
-                        style: const TextStyle(fontWeight: FontWeight.bold),
-                      ),
-                      const SizedBox(height: 4),
-                      const Text(
-                        'Generate audio files in the Audio Generation page to enable binaural beats.',
-                        style: TextStyle(fontSize: 12),
-                      ),
-                    ],
-                  ),
-                  backgroundColor: Colors.orange,
-                  duration: const Duration(seconds: 6),
-                  action: SnackBarAction(
-                    label: 'Dismiss',
-                    textColor: Colors.white,
-                    onPressed: () {},
-                  ),
-                ),
-              );
-            }
-            print('⚠️ Continuing session without binaural audio');
-            return; // Exit early - session can continue without binaural audio
-          }
-        } else {
-          print('✅ Using existing temp file: ${tempFile.path}');
-          audioFilePath = tempFile.path;
+          return;
         }
+        audioFilePath = path;
+        resolvedBinauralLabel = 'custom';
+        print(
+          '✅ Using custom session binaural clip: $path\n'
+          '   (On macOS: Finder → Go → Go to Folder… and paste the folder path to verify the .mp3 file.)',
+        );
       } else {
-        print('✅ Using generated audio file: $audioFilePath');
+        // Binaural audio is only loaded from per-session generated clips (no JSON preset / asset fallback).
+        print(
+          '⚠️ Session ${widget.session.id} has no binauralBaseFrequencyHz / '
+          'binauralBeatFrequencyHz — skipping binaural (create a new soundscape for binaural audio).',
+        );
+        setState(() {
+          _isLoading = false;
+          _audioPlayer = null;
+        });
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text(
+                'This soundscape has no custom binaural clip. '
+                'Create a new soundscape to generate binaural audio.',
+              ),
+              backgroundColor: Colors.orange,
+              duration: Duration(seconds: 6),
+            ),
+          );
+        }
+        return;
       }
-      
+
       // Create and initialize audio player with file path
       final player = AudioPlayer();
-      await player.setFilePath(audioFilePath!);
+      await player.setFilePath(audioFilePath);
       await player.setLoopMode(LoopMode.one);
       await player.setVolume(_volume);
       await player.setSpeed(_speed);
@@ -465,7 +399,7 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
       setState(() {
         _audioPlayer = player;
         _isLoading = false;
-        _currentBinauralFile = audioType;
+        _currentBinauralFile = resolvedBinauralLabel;
         _binauralAudioPath = audioFilePath; // Store path for export
       });
       
@@ -477,7 +411,7 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
         await player.play();
       }
       
-      print('Audio loaded successfully: $audioType');
+      print('Audio loaded successfully: $resolvedBinauralLabel');
     } catch (e) {
       setState(() {
         _isLoading = false;
@@ -501,6 +435,11 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
   
   /// Switch binaural audio file (base, increase, or decrease)
   Future<void> _switchBinauralAudio(String fileType) async {
+    if (widget.session.hasCustomBinauralClip) {
+      print('Custom binaural clip — skipping switch to $fileType');
+      return;
+    }
+
     if (_currentBinauralFile == fileType) {
       print('Audio file already set to $fileType');
       return;
@@ -1079,7 +1018,8 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
         _isSessionStarted = false;
         _sessionStartTime = null;
         _hasAudioSwitched = false;
-        _currentBinauralFile = 'base'; // Reset to base
+        _currentBinauralFile =
+            widget.session.hasCustomBinauralClip ? 'custom' : 'base';
       });
       
       if (mounted) {
@@ -1589,8 +1529,8 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
                 ),
               ),
               const Spacer(),
-              // Audio file type indicator
-              if (_hasAudioSwitched)
+              // Audio file type indicator (preset sessions only; custom clips have a single loop)
+              if (_hasAudioSwitched && !widget.session.hasCustomBinauralClip)
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                   decoration: BoxDecoration(
@@ -1620,6 +1560,18 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
                 ),
             ],
           ),
+          
+          if (widget.session.hasCustomBinauralClip) ...[
+            const SizedBox(height: 8),
+            Text(
+              'Carrier ${widget.session.binauralBaseFrequencyHz!.round()} Hz · '
+              'Beat ${widget.session.binauralBeatFrequencyHz} Hz · looped',
+              style: const TextStyle(
+                color: Color(0xFF7A7570),
+                fontSize: 13,
+              ),
+            ),
+          ],
           
           const SizedBox(height: 20),
           

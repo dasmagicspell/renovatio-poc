@@ -34,6 +34,8 @@
 	<string>This app needs access to your health data to track and display heart rate information for wellness monitoring.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Renovatio may use the microphone to record or process audio for your wellness sessions.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Renovatio may access your photo library to allow you to select images for your wellness profile and allow saving of exported sessions.</string>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
 	<key>BGTaskSchedulerPermittedIdentifiers</key>
