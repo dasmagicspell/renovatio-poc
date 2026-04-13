@@ -195,13 +195,12 @@ Duration: $durationMinutes minutes
 $sessionNameLine
 
 Rules:
-- Return only the final narration script text.
+- Return only the final narration script in SSML (Speech Synthesis Markup Language) format. Add a 50-second pause between each sentence.
 - Do not include headings, labels, notes, markdown, JSON, or code fences.
 - Do not include surrounding quotation marks.
 - Keep the tone gentle, grounded, and easy to follow.
 - Write in second person ("you").
 - Include natural pauses by using short sentences.
-- Add a 1-minute pause between each sentence.
 - Keep the length appropriate for roughly $durationMinutes minutes when narrated slowly.
 ''';
 
@@ -223,7 +222,6 @@ Rules:
             },
           ],
           'temperature': 1.0,
-          // 'max_tokens': 1800,
         },
       );
 

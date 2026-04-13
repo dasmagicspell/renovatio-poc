@@ -126,8 +126,7 @@ class _NewSessionPageState extends State<NewSessionPage> {
     try {
       ElevenLabsService.initialize(apiKey);
       final voices = await ElevenLabsService.getVoices(includeLegacy: true);
-      print('Voices loaded: ${voices.length}');
-      print(voices[0].toJson());
+
       if (mounted) {
         setState(() {
           _availableVoices = voices;
@@ -902,9 +901,9 @@ class _NewSessionPageState extends State<NewSessionPage> {
                       ),
                       child: Slider(
                         value: _durationMinutes,
-                        min: 1.0,
+                        min: 15.0,
                         max: 60.0,
-                        divisions: 59,
+                        divisions: 45,
                         label: _formatDuration(_durationMinutes),
                         onChanged: (value) {
                           setState(() {
@@ -916,7 +915,7 @@ class _NewSessionPageState extends State<NewSessionPage> {
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        Text('1 min', style: TextStyle(color: _textSecondary, fontSize: 12)),
+                        Text('15 mins', style: TextStyle(color: _textSecondary, fontSize: 12)),
                         Text('1 hour', style: TextStyle(color: _textSecondary, fontSize: 12)),
                       ],
                     ),
