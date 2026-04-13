@@ -401,12 +401,14 @@ class ElevenLabsService {
 class ElevenLabsVoice {
   final String voiceId;
   final String name;
+  final String? previewUrl;
   final String? category;
   final Map<String, dynamic>? settings;
   
   ElevenLabsVoice({
     required this.voiceId,
     required this.name,
+    this.previewUrl,
     this.category,
     this.settings,
   });
@@ -415,6 +417,7 @@ class ElevenLabsVoice {
     return ElevenLabsVoice(
       voiceId: json['voice_id'] as String,
       name: json['name'] as String,
+      previewUrl: json['preview_url'] as String?,
       category: json['category'] as String?,
       settings: json['settings'] as Map<String, dynamic>?,
     );
@@ -424,6 +427,7 @@ class ElevenLabsVoice {
     return {
       'voice_id': voiceId,
       'name': name,
+      'preview_url': previewUrl,
       'category': category,
       'settings': settings,
     };

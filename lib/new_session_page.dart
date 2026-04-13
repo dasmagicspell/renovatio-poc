@@ -43,6 +43,12 @@ class _NewSessionPageState extends State<NewSessionPage> {
   bool _isPlayingBackgroundAmbience = false;
   StreamSubscription? _ambienceStateSubscription;
 
+  // Audio player for narration voice preview
+  AudioPlayer? _voicePreviewPlayer;
+  bool _isPlayingVoicePreview = false;
+  bool _isLoadingVoicePreview = false;
+  StreamSubscription? _voiceStateSubscription;
+
   // ElevenLabs voices
   List<ElevenLabsVoice> _availableVoices = [];
   ElevenLabsVoice? _selectedVoice;
@@ -120,6 +126,8 @@ class _NewSessionPageState extends State<NewSessionPage> {
     try {
       ElevenLabsService.initialize(apiKey);
       final voices = await ElevenLabsService.getVoices(includeLegacy: true);
+      print('Voices loaded: ${voices.length}');
+      print(voices[0].toJson());
       if (mounted) {
         setState(() {
           _availableVoices = voices;
@@ -144,6 +152,8 @@ class _NewSessionPageState extends State<NewSessionPage> {
     _backgroundMusicPreviewPlayer?.dispose();
     _ambienceStateSubscription?.cancel();
     _backgroundAmbiencePreviewPlayer?.dispose();
+    _voiceStateSubscription?.cancel();
+    _voicePreviewPlayer?.dispose();
     super.dispose();
   }
   
@@ -351,6 +361,91 @@ class _NewSessionPageState extends State<NewSessionPage> {
     if (mounted) {
       setState(() {
         _isPlayingBackgroundAmbience = false;
+      });
+    }
+  }
+
+  Future<void> _playVoicePreview() async {
+    final selectedVoice = _selectedVoice;
+    if (selectedVoice == null ||
+        selectedVoice.previewUrl == null ||
+        selectedVoice.previewUrl!.isEmpty ||
+        _isPlayingVoicePreview ||
+        _isLoadingVoicePreview) {
+      return;
+    }
+
+    try {
+      await _stopVoicePreview();
+      if (mounted) {
+        setState(() {
+          _isLoadingVoicePreview = true;
+        });
+      }
+      _voicePreviewPlayer = AudioPlayer();
+
+      _voiceStateSubscription = _voicePreviewPlayer!.playerStateStream.listen(
+        (state) {
+          if (state.processingState == ProcessingState.completed) {
+            unawaited(_stopVoicePreview());
+            return;
+          }
+          if (mounted) {
+            setState(() {
+              _isPlayingVoicePreview = state.playing;
+              if (state.playing) {
+                _isLoadingVoicePreview = false;
+              }
+            });
+          }
+        },
+        onError: (Object error, StackTrace stackTrace) {
+          debugPrint('Voice preview player stream error: $error');
+        },
+      );
+
+      await _voicePreviewPlayer!.setUrl(selectedVoice.previewUrl!);
+      await _voicePreviewPlayer!.play();
+
+      if (mounted) {
+        setState(() {
+          _isPlayingVoicePreview = true;
+          _isLoadingVoicePreview = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _isLoadingVoicePreview = false;
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error playing voice preview: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _stopVoicePreview() async {
+    await _voiceStateSubscription?.cancel();
+    _voiceStateSubscription = null;
+
+    if (_voicePreviewPlayer != null) {
+      try {
+        await _voicePreviewPlayer!.stop();
+        await _voicePreviewPlayer!.dispose();
+        _voicePreviewPlayer = null;
+      } catch (e) {
+        // ignore
+      }
+    }
+
+    if (mounted) {
+      setState(() {
+        _isPlayingVoicePreview = false;
+        _isLoadingVoicePreview = false;
       });
     }
   }
@@ -972,7 +1067,38 @@ class _NewSessionPageState extends State<NewSessionPage> {
                   children: [
                     _buildFieldLabel('VOICE'),
                     const SizedBox(height: 8),
-                    _buildVoiceDropdown(),
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Expanded(child: _buildVoiceDropdown()),
+                        const SizedBox(width: 8),
+                        _buildPreviewButton(
+                          enabled: _selectedVoice?.previewUrl != null &&
+                              _selectedVoice!.previewUrl!.isNotEmpty,
+                          isPlaying: _isPlayingVoicePreview,
+                          isLoading: _isLoadingVoicePreview,
+                          onPlay: _playVoicePreview,
+                          onStop: _stopVoicePreview,
+                        ),
+                      ],
+                    ),
+                    if (_selectedVoice?.previewUrl != null &&
+                        _selectedVoice!.previewUrl!.isNotEmpty) ...[
+                      const SizedBox(height: 8),
+                      Text(
+                        _isLoadingVoicePreview
+                            ? 'Loading voice sample...'
+                            : _isPlayingVoicePreview
+                            ? 'Playing voice sample — tap stop when done'
+                            : 'Tap play to preview this voice',
+                        style: TextStyle(
+                          color: (_isPlayingVoicePreview || _isLoadingVoicePreview)
+                              ? const Color(0xFF7BAF8E)
+                              : _textSecondary,
+                          fontSize: 12,
+                        ),
+                      ),
+                    ],
                     const SizedBox(height: 20),
                     _buildFieldLabel('SCRIPT'),
                     const SizedBox(height: 4),
@@ -1183,7 +1309,10 @@ class _NewSessionPageState extends State<NewSessionPage> {
           ),
         );
       }).toList(),
-      onChanged: (voice) {
+      onChanged: (voice) async {
+        if (_isPlayingVoicePreview || _isLoadingVoicePreview) {
+          await _stopVoicePreview();
+        }
         setState(() {
           _selectedVoice = voice;
         });
@@ -1194,16 +1323,26 @@ class _NewSessionPageState extends State<NewSessionPage> {
   Widget _buildPreviewButton({
     required bool enabled,
     required bool isPlaying,
+    bool isLoading = false,
     required VoidCallback onPlay,
     required VoidCallback onStop,
   }) {
     final color = isPlaying ? const Color(0xFFD4867A) : const Color(0xFF7BAF8E);
     return IconButton(
-      onPressed: enabled ? (isPlaying ? onStop : onPlay) : null,
-      icon: Icon(
-        isPlaying ? Icons.stop_rounded : Icons.play_arrow_rounded,
-        color: enabled ? Colors.white : _textSecondary,
-      ),
+      onPressed: (enabled && !isLoading) ? (isPlaying ? onStop : onPlay) : null,
+      icon: isLoading
+          ? const SizedBox(
+              width: 18,
+              height: 18,
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                color: Colors.white,
+              ),
+            )
+          : Icon(
+              isPlaying ? Icons.stop_rounded : Icons.play_arrow_rounded,
+              color: enabled ? Colors.white : _textSecondary,
+            ),
       style: IconButton.styleFrom(
         backgroundColor: enabled ? color : _border,
         padding: const EdgeInsets.all(12),

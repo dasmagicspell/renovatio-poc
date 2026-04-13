@@ -5,7 +5,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:cross_file/cross_file.dart';
 import 'package:file_picker/file_picker.dart';
-import 'package:flutter/foundation.dart' show kIsWeb, debugPrint;
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'dart:async';
 import 'dart:io';
 import 'dart:convert';
@@ -61,7 +61,6 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
   /// Seconds left until stop (fade is included: last [_effectiveFadeSeconds] seconds ramp volume down).
   /// [ValueNotifier] so the countdown UI updates every tick even if [setState] batching misbehaves.
   final ValueNotifier<int> _sessionRemainingNotifier = ValueNotifier<int>(0);
-  int _sessionClockTickAttempts = 0;
   static const Duration _fadeOutDuration = Duration(seconds: 12);
   
   // HealthKit Observer state
@@ -897,11 +896,6 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
   }
 
   void _cancelMasterClockTimer() {
-    if (_sessionClockTimer != null) {
-      debugPrint(
-        '[SessionClock] cancelled at ${_sessionRemainingNotifier.value}s remaining',
-      );
-    }
     _sessionClockTimer?.cancel();
     _sessionClockTimer = null;
   }
@@ -917,15 +911,9 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
   void _startMasterClockTimer() {
     _cancelMasterClockTimer();
     if (!_isSessionStarted || _sessionRemainingNotifier.value <= 0) {
-      debugPrint(
-        '[SessionClock] not started (started=$_isSessionStarted, remaining=${_sessionRemainingNotifier.value}s)',
-      );
       return;
     }
 
-    debugPrint(
-      '[SessionClock] started total=${_sessionTotalSeconds}s remaining=${_sessionRemainingNotifier.value}s',
-    );
     _sessionClockTimer = Timer.periodic(
       const Duration(seconds: 1),
       (_) => _onSessionClockTick(),
@@ -934,22 +922,11 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
 
   /// Countdown and fade are driven synchronously each tick so seconds cannot overlap or reorder.
   void _onSessionClockTick() {
-    _sessionClockTickAttempts++;
-    debugPrint(
-      '[SessionClock] tick attempt #$_sessionClockTickAttempts mounted=$mounted started=$_isSessionStarted remaining=${_sessionRemainingNotifier.value}s',
-    );
-    if (!mounted || !_isSessionStarted) {
-      debugPrint('[SessionClock] tick skipped due to mounted/started guard');
-      return;
-    }
+    if (!mounted || !_isSessionStarted) return;
 
-    final before = _sessionRemainingNotifier.value;
     var next = _sessionRemainingNotifier.value - 1;
     if (next < 0) next = 0;
     _sessionRemainingNotifier.value = next;
-    debugPrint(
-      '[SessionClock] tick $before -> ${_sessionRemainingNotifier.value}s',
-    );
 
     if (_sessionRemainingNotifier.value <= 0) {
       _cancelMasterClockTimer();
@@ -961,7 +938,6 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
   }
 
   Future<void> _completeSessionAtTimerEnd() async {
-    debugPrint('[SessionClock] reached zero, completing session');
     await _restoreAllPlayerVolumes();
     if (!mounted) return;
     await _finalizeStoppedSession(
@@ -1037,7 +1013,6 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
       if (mounted) {
         setState(() {
           _isSessionStarted = false;
-          debugPrint('[SessionClock] finalize set _isSessionStarted=false');
           _sessionStartTime = null;
           _hasAudioSwitched = false;
           _currentBinauralFile =
@@ -1081,9 +1056,6 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
         _sessionRemainingNotifier.value = _sessionTotalSeconds;
       }
     });
-    debugPrint(
-      '[SessionClock] start pressed isResuming=$isResuming duration=${widget.session.durationMinutes}m total=${_sessionTotalSeconds}s remaining=${_sessionRemainingNotifier.value}s',
-    );
     
     try {
       // Start HealthKit observer to monitor heart rate during the session
@@ -1135,7 +1107,6 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
           // Only reset if this was a new session, not a resume
           if (!isResuming) {
             _isSessionStarted = false;
-            debugPrint('[SessionClock] start error set _isSessionStarted=false');
             _sessionStartTime = null;
             _sessionTotalSeconds = 0;
             _sessionRemainingNotifier.value = 0;
