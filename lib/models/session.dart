@@ -76,9 +76,11 @@ class Session {
   String get formattedDuration {
     if (durationMinutes == 60) {
       return '1 hour';
-    } else {
-      return '$durationMinutes minutes';
     }
+    if (durationMinutes == 1) {
+      return '1 minute';
+    }
+    return '$durationMinutes minutes';
   }
 }
 

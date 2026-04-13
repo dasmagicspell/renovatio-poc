@@ -167,6 +167,106 @@ class ChatGPTService {
     return ['tts-1', 'tts-1-hd'];
   }
 
+  /// Generate a guided narration script for the New Session page.
+  static Future<String?> generateNarrationScript({
+    String? activity,
+    required int durationMinutes,
+    String? sessionName,
+  }) async {
+    if (_apiKey == null) {
+      throw Exception('ChatGPT API key not initialized');
+    }
+
+    try {
+      final sessionNameLine =
+          (sessionName != null && sessionName.trim().isNotEmpty)
+              ? 'Session title: ${sessionName.trim()}'
+              : 'Session title: (not provided)';
+      final goalLine =
+          (activity != null && activity.trim().isNotEmpty)
+              ? 'Goal/activity: ${activity.trim()}'
+              : null;
+
+      final prompt = '''
+Create a calm, supportive guided narration script for a wellness soundscape session.
+
+${goalLine ?? ''}
+Duration: $durationMinutes minutes
+$sessionNameLine
+
+Rules:
+- Return only the final narration script text.
+- Do not include headings, labels, notes, markdown, JSON, or code fences.
+- Do not include surrounding quotation marks.
+- Keep the tone gentle, grounded, and easy to follow.
+- Write in second person ("you").
+- Include natural pauses by using short sentences.
+- Add a 1-minute pause between each sentence.
+- Keep the length appropriate for roughly $durationMinutes minutes when narrated slowly.
+''';
+
+      final response = await _dio.post(
+        '/chat/completions',
+        data: {
+          // Use a chat-completions compatible model.
+          'model': 'gpt-5-mini',
+          'messages': [
+            {
+              'role': 'system',
+              'content':
+                  'You write meditation and relaxation narration scripts. '
+                      'Output strictly plain script text only.',
+            },
+            {
+              'role': 'user',
+              'content': prompt,
+            },
+          ],
+          'temperature': 1.0,
+          // 'max_tokens': 1800,
+        },
+      );
+
+      if (response.statusCode != 200) {
+        throw Exception('Failed to generate narration script.');
+      }
+
+      final rawContent = response.data['choices']?[0]?['message']?['content'];
+      if (rawContent is! String) {
+        return null;
+      }
+
+      return _sanitizeGeneratedScript(rawContent);
+    } on DioException catch (e) {
+      final status = e.response?.statusCode;
+      final details = e.response?.data;
+      print(
+        'Error generating narration script: '
+        'status=$status, message=${e.message}, response=$details',
+      );
+      return null;
+    } catch (e) {
+      print('Error generating narration script: $e');
+      return null;
+    }
+  }
+
+  static String _sanitizeGeneratedScript(String input) {
+    var output = input.trim();
+
+    if (output.startsWith('```')) {
+      output = output.replaceFirst(RegExp(r'^```[a-zA-Z]*\s*'), '');
+      output = output.replaceFirst(RegExp(r'```$'), '');
+      output = output.trim();
+    }
+
+    if (output.startsWith('"') && output.endsWith('"') && output.length >= 2) {
+      output = output.substring(1, output.length - 1).trim();
+    }
+
+    return output;
+  }
+
   /// Generate binaural audio configuration JSON based on activity prompt
   static Future<Map<String, dynamic>?> generateBinauralConfig({
     required String prompt,

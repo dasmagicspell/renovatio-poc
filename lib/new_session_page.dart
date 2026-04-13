@@ -9,6 +9,7 @@ import 'services/elevenlabs_service.dart';
 import 'services/config_service.dart';
 import 'services/binaural_audio_generator.dart';
 import 'services/binaural_goal_frequencies.dart';
+import 'chatgpt_service.dart';
 import 'session_details_page.dart';
 
 class NewSessionPage extends StatefulWidget {
@@ -27,6 +28,7 @@ class _NewSessionPageState extends State<NewSessionPage> {
   /// Carrier frequency (Hz) for the binaural tone; used when generating the session clip.
   double _baseFrequencyHz = 200.0;
   bool _isCreatingSoundscape = false;
+  bool _isGeneratingScript = false;
   double _durationMinutes = 15.0;
   String? _selectedBackgroundMusic;
   String? _selectedBackgroundAmbience;
@@ -441,14 +443,86 @@ class _NewSessionPageState extends State<NewSessionPage> {
       }
     }
   }
+
+  Future<void> _generateScriptUsingAI() async {
+    if (_isGeneratingScript) {
+      return;
+    }
+
+    final apiKey = ConfigService.openAIApiKey;
+    if (apiKey == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('OpenAI API key is not configured.'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+
+    setState(() {
+      _isGeneratingScript = true;
+    });
+
+    try {
+      ChatGPTService.initialize(apiKey);
+      final generatedScript = await ChatGPTService.generateNarrationScript(
+        activity: _selectedActivity,
+        durationMinutes: _durationMinutes.round(),
+        sessionName: _sessionNameController.text.trim().isEmpty
+            ? null
+            : _sessionNameController.text.trim(),
+      );
+
+      if (!mounted) return;
+
+      if (generatedScript == null || generatedScript.trim().isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Could not generate a script. Please try again.'),
+            backgroundColor: Colors.red,
+          ),
+        );
+        return;
+      }
+
+      _narrationTextController.text = generatedScript.trim();
+      _narrationTextController.selection = TextSelection.fromPosition(
+        TextPosition(offset: _narrationTextController.text.length),
+      );
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Narration script generated.'),
+          backgroundColor: Colors.green,
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error generating script: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isGeneratingScript = false;
+        });
+      }
+    }
+  }
   
   String _formatDuration(double minutes) {
     final mins = minutes.toInt();
     if (mins == 60) {
       return '1 hour';
-    } else {
-      return '$mins minutes';
     }
+    if (mins == 1) {
+      return '1 minute';
+    }
+    return '$mins minutes';
   }
 
   InputDecoration _fieldDecoration({required String hint}) {
@@ -733,9 +807,9 @@ class _NewSessionPageState extends State<NewSessionPage> {
                       ),
                       child: Slider(
                         value: _durationMinutes,
-                        min: 15.0,
+                        min: 1.0,
                         max: 60.0,
-                        divisions: 9,
+                        divisions: 59,
                         label: _formatDuration(_durationMinutes),
                         onChanged: (value) {
                           setState(() {
@@ -747,7 +821,7 @@ class _NewSessionPageState extends State<NewSessionPage> {
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        Text('15 min', style: TextStyle(color: _textSecondary, fontSize: 12)),
+                        Text('1 min', style: TextStyle(color: _textSecondary, fontSize: 12)),
                         Text('1 hour', style: TextStyle(color: _textSecondary, fontSize: 12)),
                       ],
                     ),
@@ -905,6 +979,36 @@ class _NewSessionPageState extends State<NewSessionPage> {
                     Text(
                       'These words will be narrated by AI during your session.',
                       style: TextStyle(color: _textSecondary, fontSize: 12),
+                    ),
+                    const SizedBox(height: 10),
+                    SizedBox(
+                      width: double.infinity,
+                      child: OutlinedButton.icon(
+                        onPressed: _isGeneratingScript ? null : _generateScriptUsingAI,
+                        icon: _isGeneratingScript
+                            ? const SizedBox(
+                                width: 16,
+                                height: 16,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: _primary,
+                                ),
+                              )
+                            : const Icon(Icons.auto_awesome, size: 18),
+                        label: Text(
+                          _isGeneratingScript
+                              ? 'Generating Script...'
+                              : 'Generate Script using AI',
+                        ),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: _primary,
+                          side: BorderSide(color: _primary.withOpacity(0.45)),
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                        ),
+                      ),
                     ),
                     const SizedBox(height: 10),
                     TextFormField(

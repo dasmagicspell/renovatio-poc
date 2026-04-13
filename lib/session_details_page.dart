@@ -5,7 +5,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:cross_file/cross_file.dart';
 import 'package:file_picker/file_picker.dart';
-import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/foundation.dart' show kIsWeb, debugPrint;
 import 'dart:async';
 import 'dart:io';
 import 'dart:convert';
@@ -53,6 +53,16 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
   double _narrationVolume = 0.35; // Narration - reduced to balance with other tracks
   double _narrationSpeed = 1.0;
   bool _isSessionStarted = false;
+
+  /// Counts down while the soundscape is playing; paused when the user pauses all audio.
+  Timer? _sessionClockTimer;
+  /// Total length of this run in seconds (from [Session.durationMinutes]); fixed until session ends.
+  int _sessionTotalSeconds = 0;
+  /// Seconds left until stop (fade is included: last [_effectiveFadeSeconds] seconds ramp volume down).
+  /// [ValueNotifier] so the countdown UI updates every tick even if [setState] batching misbehaves.
+  final ValueNotifier<int> _sessionRemainingNotifier = ValueNotifier<int>(0);
+  int _sessionClockTickAttempts = 0;
+  static const Duration _fadeOutDuration = Duration(seconds: 12);
   
   // HealthKit Observer state
   bool _isObserverInitialized = false;
@@ -117,6 +127,8 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
   
   @override
   void dispose() {
+    _cancelMasterClockTimer();
+    _sessionRemainingNotifier.dispose();
     _audioPlayer?.dispose();
     _backgroundMusicPlayer?.dispose();
     _natureAmbiencePlayer?.dispose();
@@ -883,7 +895,176 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
       }
     }
   }
-  
+
+  void _cancelMasterClockTimer() {
+    if (_sessionClockTimer != null) {
+      debugPrint(
+        '[SessionClock] cancelled at ${_sessionRemainingNotifier.value}s remaining',
+      );
+    }
+    _sessionClockTimer?.cancel();
+    _sessionClockTimer = null;
+  }
+
+  /// Fade length in seconds, capped by total session length (fade is inside chosen duration).
+  int get _effectiveFadeSeconds {
+    final total = _sessionTotalSeconds;
+    if (total <= 0) return 0;
+    final maxF = _fadeOutDuration.inSeconds;
+    return maxF < total ? maxF : total;
+  }
+
+  void _startMasterClockTimer() {
+    _cancelMasterClockTimer();
+    if (!_isSessionStarted || _sessionRemainingNotifier.value <= 0) {
+      debugPrint(
+        '[SessionClock] not started (started=$_isSessionStarted, remaining=${_sessionRemainingNotifier.value}s)',
+      );
+      return;
+    }
+
+    debugPrint(
+      '[SessionClock] started total=${_sessionTotalSeconds}s remaining=${_sessionRemainingNotifier.value}s',
+    );
+    _sessionClockTimer = Timer.periodic(
+      const Duration(seconds: 1),
+      (_) => _onSessionClockTick(),
+    );
+  }
+
+  /// Countdown and fade are driven synchronously each tick so seconds cannot overlap or reorder.
+  void _onSessionClockTick() {
+    _sessionClockTickAttempts++;
+    debugPrint(
+      '[SessionClock] tick attempt #$_sessionClockTickAttempts mounted=$mounted started=$_isSessionStarted remaining=${_sessionRemainingNotifier.value}s',
+    );
+    if (!mounted || !_isSessionStarted) {
+      debugPrint('[SessionClock] tick skipped due to mounted/started guard');
+      return;
+    }
+
+    final before = _sessionRemainingNotifier.value;
+    var next = _sessionRemainingNotifier.value - 1;
+    if (next < 0) next = 0;
+    _sessionRemainingNotifier.value = next;
+    debugPrint(
+      '[SessionClock] tick $before -> ${_sessionRemainingNotifier.value}s',
+    );
+
+    if (_sessionRemainingNotifier.value <= 0) {
+      _cancelMasterClockTimer();
+      unawaited(_completeSessionAtTimerEnd());
+      return;
+    }
+
+    unawaited(_syncVolumesToRemaining());
+  }
+
+  Future<void> _completeSessionAtTimerEnd() async {
+    debugPrint('[SessionClock] reached zero, completing session');
+    await _restoreAllPlayerVolumes();
+    if (!mounted) return;
+    await _finalizeStoppedSession(
+      snackBarMessage: 'Session complete',
+      snackBarColor: const Color(0xFF7BAF8E),
+    );
+  }
+
+  Future<void> _syncVolumesToRemaining() async {
+    final r = _sessionRemainingNotifier.value;
+    final fade = _effectiveFadeSeconds;
+    double factor;
+    if (r <= 0) {
+      factor = 0;
+    } else if (fade <= 0) {
+      factor = 1.0;
+    } else if (r > fade) {
+      factor = 1.0;
+    } else {
+      factor = r / fade;
+    }
+    try {
+      if (_audioPlayer != null) await _audioPlayer!.setVolume(_volume * factor);
+      if (_backgroundMusicPlayer != null) {
+        await _backgroundMusicPlayer!.setVolume(_backgroundVolume * factor);
+      }
+      if (_natureAmbiencePlayer != null) {
+        await _natureAmbiencePlayer!.setVolume(_ambienceVolume * factor);
+      }
+      if (_narrationPlayer != null) {
+        await _narrationPlayer!.setVolume(_narrationVolume * factor);
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _restoreAllPlayerVolumes() async {
+    try {
+      if (_audioPlayer != null) await _audioPlayer!.setVolume(_volume);
+      if (_backgroundMusicPlayer != null) {
+        await _backgroundMusicPlayer!.setVolume(_backgroundVolume);
+      }
+      if (_natureAmbiencePlayer != null) {
+        await _natureAmbiencePlayer!.setVolume(_ambienceVolume);
+      }
+      if (_narrationPlayer != null) {
+        await _narrationPlayer!.setVolume(_narrationVolume);
+      }
+    } catch (_) {}
+  }
+
+  /// Stops playback and resets session UI; restores player volumes for the next start.
+  Future<void> _finalizeStoppedSession({
+    required String snackBarMessage,
+    required Color snackBarColor,
+  }) async {
+    try {
+      _cancelMasterClockTimer();
+      await _stopObserver();
+
+      final futures = <Future>[];
+      if (_audioPlayer != null) futures.add(_audioPlayer!.stop());
+      if (_backgroundMusicPlayer != null) {
+        futures.add(_backgroundMusicPlayer!.stop());
+      }
+      if (_natureAmbiencePlayer != null) {
+        futures.add(_natureAmbiencePlayer!.stop());
+      }
+      if (_narrationPlayer != null) futures.add(_narrationPlayer!.stop());
+
+      await Future.wait(futures);
+      await _restoreAllPlayerVolumes();
+
+      if (mounted) {
+        setState(() {
+          _isSessionStarted = false;
+          debugPrint('[SessionClock] finalize set _isSessionStarted=false');
+          _sessionStartTime = null;
+          _hasAudioSwitched = false;
+          _currentBinauralFile =
+              widget.session.hasCustomBinauralClip ? 'custom' : 'base';
+          _sessionTotalSeconds = 0;
+          _sessionRemainingNotifier.value = 0;
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(snackBarMessage),
+            backgroundColor: snackBarColor,
+            duration: const Duration(seconds: 2),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error ending soundscape: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
   Future<void> _startSession() async {
     // Check if this is a new session or a resume
     final isResuming = _isSessionStarted && _sessionStartTime != null;
@@ -896,32 +1077,46 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
         _sessionStartTime = DateTime.now();
         _aiAnalysis = null; // Reset analysis when starting new soundscape
         _aiAnalysisError = null;
+        _sessionTotalSeconds = widget.session.durationMinutes * 60;
+        _sessionRemainingNotifier.value = _sessionTotalSeconds;
       }
     });
+    debugPrint(
+      '[SessionClock] start pressed isResuming=$isResuming duration=${widget.session.durationMinutes}m total=${_sessionTotalSeconds}s remaining=${_sessionRemainingNotifier.value}s',
+    );
     
     try {
       // Start HealthKit observer to monitor heart rate during the session
       // (This will check if already active and skip if so)
       await _startObserver();
       
-      // Start all available audio players simultaneously
-      final futures = <Future>[];
-      
+      // Start all available audio players simultaneously.
+      // NOTE: just_audio `play()` future may complete only when playback stops,
+      // so we must not await here or the master clock won't start.
       if (_audioPlayer != null) {
-        futures.add(_audioPlayer!.play());
+        unawaited(_audioPlayer!.play());
       }
       if (_backgroundMusicPlayer != null) {
-        futures.add(_backgroundMusicPlayer!.play());
+        unawaited(_backgroundMusicPlayer!.play());
       }
       if (_natureAmbiencePlayer != null) {
-        futures.add(_natureAmbiencePlayer!.play());
+        unawaited(_natureAmbiencePlayer!.play());
       }
       if (_narrationPlayer != null) {
-        futures.add(_narrationPlayer!.play());
+        unawaited(_narrationPlayer!.play());
       }
-      
-      // Wait for all players to start (but don't block UI update)
-      await Future.wait(futures);
+
+      await _syncVolumesToRemaining();
+
+      if (_sessionRemainingNotifier.value <= 0) {
+        await _restoreAllPlayerVolumes();
+        await _finalizeStoppedSession(
+          snackBarMessage: 'Session complete',
+          snackBarColor: const Color(0xFF7BAF8E),
+        );
+        return;
+      }
+      _startMasterClockTimer();
       
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -935,11 +1130,15 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
     } catch (e) {
       // If there's an error, revert the soundscape started state
       if (mounted) {
+        _cancelMasterClockTimer();
         setState(() {
           // Only reset if this was a new session, not a resume
           if (!isResuming) {
             _isSessionStarted = false;
+            debugPrint('[SessionClock] start error set _isSessionStarted=false');
             _sessionStartTime = null;
+            _sessionTotalSeconds = 0;
+            _sessionRemainingNotifier.value = 0;
           }
         });
         ScaffoldMessenger.of(context).showSnackBar(
@@ -953,6 +1152,7 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
   }
   
   Future<void> _pauseAllAudio() async {
+    _cancelMasterClockTimer();
     try {
       final futures = <Future>[];
       
@@ -970,6 +1170,8 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
       }
       
       await Future.wait(futures);
+
+      await _restoreAllPlayerVolumes();
       
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -993,44 +1195,13 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
   }
   
   Future<void> _stopAllAudio() async {
+    _cancelMasterClockTimer();
     try {
-      // Stop HealthKit observer
-      await _stopObserver();
-      
-      final futures = <Future>[];
-      
-      if (_audioPlayer != null) {
-        futures.add(_audioPlayer!.stop());
-      }
-      if (_backgroundMusicPlayer != null) {
-        futures.add(_backgroundMusicPlayer!.stop());
-      }
-      if (_natureAmbiencePlayer != null) {
-        futures.add(_natureAmbiencePlayer!.stop());
-      }
-      if (_narrationPlayer != null) {
-        futures.add(_narrationPlayer!.stop());
-      }
-      
-      await Future.wait(futures);
-      
-      setState(() {
-        _isSessionStarted = false;
-        _sessionStartTime = null;
-        _hasAudioSwitched = false;
-        _currentBinauralFile =
-            widget.session.hasCustomBinauralClip ? 'custom' : 'base';
-      });
-      
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Soundscape stopped'),
-            backgroundColor: Colors.red,
-            duration: Duration(seconds: 1),
-          ),
-        );
-      }
+      await _restoreAllPlayerVolumes();
+      await _finalizeStoppedSession(
+        snackBarMessage: 'Soundscape stopped',
+        snackBarColor: Colors.red,
+      );
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -1388,12 +1559,20 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
                               size: 16,
                             ),
                             const SizedBox(width: 6),
-                            Text(
-                              widget.session.formattedDuration,
-                              style: TextStyle(
-                                color: Colors.white.withOpacity(0.8),
-                                fontSize: 13,
-                              ),
+                            ValueListenableBuilder<int>(
+                              valueListenable: _sessionRemainingNotifier,
+                              builder: (context, secondsLeft, _) {
+                                final durationLabel = _isSessionStarted
+                                    ? _formatSessionCountdown(secondsLeft)
+                                    : widget.session.formattedDuration;
+                                return Text(
+                                  durationLabel,
+                                  style: TextStyle(
+                                    color: Colors.white.withOpacity(0.8),
+                                    fontSize: 13,
+                                  ),
+                                );
+                              },
                             ),
                           ],
                         ),
@@ -2261,6 +2440,38 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
               ),
             ),
           ] else ...[
+            Padding(
+              padding: const EdgeInsets.only(bottom: 12),
+              child: Column(
+                children: [
+                  Text(
+                    'Time left',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: const Color(0xFF5C574F).withValues(alpha: 0.85),
+                      fontSize: 13,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  ValueListenableBuilder<int>(
+                    valueListenable: _sessionRemainingNotifier,
+                    builder: (context, secondsLeft, _) {
+                      return Text(
+                        _formatSessionCountdown(secondsLeft),
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(
+                          color: Color(0xFF2F2F2F),
+                          fontSize: 22,
+                          fontWeight: FontWeight.bold,
+                          fontFeatures: [FontFeature.tabularFigures()],
+                        ),
+                      );
+                    },
+                  ),
+                ],
+              ),
+            ),
             // Pause and Stop Buttons
             Row(
               children: [
@@ -2317,7 +2528,10 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
             ),
             const SizedBox(height: 12),
             // Resume button (if all are paused)
-            if (!_isPlaying && !_isPlayingBackground && !_isPlayingAmbience && !_isPlayingNarration)
+            if (!_isPlaying &&
+                !_isPlayingBackground &&
+                !_isPlayingAmbience &&
+                !_isPlayingNarration)
               ElevatedButton.icon(
                 onPressed: _startSession,
                 icon: const Icon(Icons.play_arrow, size: 24),
@@ -2668,6 +2882,14 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
       return '${minutes}m ${seconds}s';
     }
     return '${seconds}s';
+  }
+
+  /// MM:SS for the session master clock (matches [Session.durationMinutes] cap).
+  String _formatSessionCountdown(int totalSeconds) {
+    final s = totalSeconds.clamp(0, 86400 * 2);
+    final m = s ~/ 60;
+    final sec = s % 60;
+    return '${m.toString().padLeft(2, '0')}:${sec.toString().padLeft(2, '0')}';
   }
   
   String _formatDate(DateTime date) {

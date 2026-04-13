@@ -58,15 +58,15 @@ class _SessionsPageState extends State<SessionsPage> {
   }
 
   Future<void> _navigateToNewSession() async {
-    final result = await Navigator.of(context).push(
+    await Navigator.of(context).push(
       MaterialPageRoute(
         builder: (context) => const NewSessionPage(),
       ),
     );
-    
-    if (result == true) {
-      _loadSessions();
-    }
+    // Reload whenever this route stack unwinds (including after create →
+    // SessionDetails via pushReplacement, then back). Pop never sends `true`
+    // from that flow, so a result check would skip refresh.
+    _loadSessions();
   }
 
   void _navigateToSessionDetails(Session session) {
