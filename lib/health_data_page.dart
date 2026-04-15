@@ -45,6 +45,7 @@ class _HealthDataPageState extends State<HealthDataPage> {
       _startFallbackTimer();
       
       setState(() {
+        _isObserverActive = true;
         _observerStatus = 'Initializing...';
       });
     } catch (e) {

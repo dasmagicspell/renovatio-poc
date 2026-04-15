@@ -20,43 +20,6 @@ class ChatGPTService {
     };
   }
   
-  /// Generate audio using ChatGPT's TTS API
-  static Future<String?> generateAudio({
-    required String prompt,
-    required String sessionId,
-    String voice = 'alloy',
-    String model = 'tts-1',
-  }) async {
-    if (_apiKey == null) {
-      throw Exception('ChatGPT API key not initialized');
-    }
-    
-    try {
-      // For now, we'll simulate audio generation since ChatGPT doesn't have direct audio generation
-      // In a real implementation, you might use OpenAI's TTS API or another audio generation service
-      await Future.delayed(const Duration(seconds: 3)); // Simulate processing time
-      
-      // Create a placeholder audio file (in real implementation, this would be the generated audio)
-      final directory = await getApplicationDocumentsDirectory();
-      final audioDir = Directory('${directory.path}/generated_audio');
-      if (!await audioDir.exists()) {
-        await audioDir.create(recursive: true);
-      }
-      
-      final fileName = 'session_${sessionId}_${DateTime.now().millisecondsSinceEpoch}.wav';
-      final filePath = '${audioDir.path}/$fileName';
-      
-      // Create a placeholder file (in real implementation, this would be the actual audio data)
-      final file = File(filePath);
-      await file.writeAsString('Generated audio placeholder for: $prompt');
-      
-      return filePath;
-    } catch (e) {
-      print('Error generating audio: $e');
-      return null;
-    }
-  }
-  
   /// Generate audio using a more realistic approach with actual TTS
   static Future<String?> generateAudioWithTTS({
     required String prompt,
@@ -195,7 +158,7 @@ Duration: $durationMinutes minutes
 $sessionNameLine
 
 Rules:
-- Return only the final narration script in SSML (Speech Synthesis Markup Language) format. Add a 50-second pause between each sentence.
+- Return only the final narration script in SSML (Speech Synthesis Markup Language) format. Add a 10-second pause between each sentence.
 - Do not include headings, labels, notes, markdown, JSON, or code fences.
 - Do not include surrounding quotation marks.
 - Keep the tone gentle, grounded, and easy to follow.

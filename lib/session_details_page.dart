@@ -31,6 +31,10 @@ class SessionDetailsPage extends StatefulWidget {
 }
 
 class _SessionDetailsPageState extends State<SessionDetailsPage> {
+  /// Set to true to re-enable automatic binaural switching after AI heart-rate
+  /// analysis. Currently disabled because all sessions use a custom FFmpeg clip
+  /// and the switching logic only supports the legacy preset-file flow.
+  static const bool _binauralSwitchingEnabled = false;
   AudioPlayer? _audioPlayer; // Binaural audio
   AudioPlayer? _backgroundMusicPlayer; // Background music
   AudioPlayer? _natureAmbiencePlayer; // Nature ambience
@@ -297,8 +301,9 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
         });
         print('✅ AI analysis received');
         
-        // Switch to increase audio file after receiving AI response
-        _switchBinauralAudio('increase');
+        if (_binauralSwitchingEnabled) {
+          _switchBinauralAudio('increase');
+        }
       }
     } catch (e) {
       print('❌ Error getting AI analysis: $e');
@@ -606,61 +611,61 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
     }
   }
   
+  /// Maps a user-facing ambience name to its bundled asset filename (without extension).
+  static String? _ambienceAssetSlug(String? ambience) {
+    switch (ambience) {
+      case 'Forest':
+        return 'forest';
+      case 'Ocean Waves':
+        return 'ocean-waves';
+      case 'Rain':
+        return 'rain';
+      case 'Birds Chirping':
+        return 'birds-chirping';
+      default:
+        return null;
+    }
+  }
+
   Future<void> _loadNatureAmbience() async {
+    final slug = _ambienceAssetSlug(widget.session.backgroundAmbience);
+    if (slug == null) {
+      // "None" or unrecognised — nothing to load.
+      setState(() => _isLoadingAmbience = false);
+      return;
+    }
+
     setState(() {
       _isLoadingAmbience = true;
     });
-    
+
     try {
-      // Try forest.mp4 first (like the old sessions page), then mp3
-      final assetPaths = [
-        'assets/audio/background-audio/forest.mp3',
-      ];
-      
-      // For large files, copy asset to temporary directory first
+      final assetPath = 'assets/audio/background-audio/$slug.mp3';
       final tempDir = await getTemporaryDirectory();
-      final tempFile = File('${tempDir.path}/forest_ambience.mp3');
-      
-      // Check if file already exists in temp
+      final tempFile = File('${tempDir.path}/${slug}_ambience.mp3');
+
       if (!await tempFile.exists()) {
-        bool loaded = false;
-        
-        // Try each asset path
-        for (final assetPath in assetPaths) {
-          try {
-            print('Attempting to load ambience: $assetPath');
-            // Copy asset to temporary file
-            final byteData = await rootBundle.load(assetPath);
-            await tempFile.writeAsBytes(byteData.buffer.asUint8List());
-            print('Ambience file copied to: ${tempFile.path}');
-            loaded = true;
-            break;
-          } catch (e) {
-            print('Failed to load $assetPath: $e');
-            continue;
-          }
-        }
-        
-        if (!loaded) {
-          setState(() {
-            _isLoadingAmbience = false;
-          });
-          print('Could not load ambience from any asset path');
-          // Don't show error to user as it's optional
+        try {
+          print('Attempting to load ambience: $assetPath');
+          final byteData = await rootBundle.load(assetPath);
+          await tempFile.writeAsBytes(byteData.buffer.asUint8List());
+          print('Ambience file copied to: ${tempFile.path}');
+        } catch (e) {
+          print('Failed to load $assetPath: $e');
+          setState(() => _isLoadingAmbience = false);
           return;
         }
       } else {
         print('Using existing temp file: ${tempFile.path}');
       }
-      
+
       // Create and initialize ambience player
       final player = AudioPlayer();
       await player.setFilePath(tempFile.path);
       await player.setLoopMode(LoopMode.one);
       await player.setVolume(_ambienceVolume);
       await player.setSpeed(_ambienceSpeed);
-      
-      // Listen to player state changes
+
       player.playerStateStream.listen((state) {
         if (mounted) {
           setState(() {
@@ -668,21 +673,19 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
           });
         }
       });
-      
+
       setState(() {
         _natureAmbiencePlayer = player;
         _isLoadingAmbience = false;
-        _ambiencePath = tempFile.path; // Store path for export
+        _ambiencePath = tempFile.path;
       });
-      
+
       print('Ambience loaded successfully');
     } catch (e) {
       setState(() {
         _isLoadingAmbience = false;
       });
-      
       print('Error loading ambience: $e');
-      // Don't show error snackbar for nature ambience as it's optional
     }
   }
   
