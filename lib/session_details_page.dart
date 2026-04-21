@@ -48,13 +48,13 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
   bool _isPlayingBackground = false;
   bool _isPlayingAmbience = false;
   bool _isPlayingNarration = false;
-  double _volume = 0.8; // Binaural audio - increased for better audibility
+  late double _volume;
   double _speed = 1.0;
-  double _backgroundVolume = 0.1; // Background music - reduced to not drown out binaural
+  late double _backgroundVolume;
   double _backgroundSpeed = 1.0;
-  double _ambienceVolume = 0.1; // Ambience - reduced to not drown out binaural
+  late double _ambienceVolume;
   double _ambienceSpeed = 1.0;
-  double _narrationVolume = 0.35; // Narration - reduced to balance with other tracks
+  late double _narrationVolume;
   double _narrationSpeed = 1.0;
   bool _isSessionStarted = false;
 
@@ -70,6 +70,7 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
   // HealthKit Observer state
   bool _isObserverInitialized = false;
   bool _isObserverActive = false;
+  // ignore: unused_field
   String _observerStatus = 'Not initialized';
   List<HeartRateData> _sessionHeartRateData = [];
   DateTime? _sessionStartTime;
@@ -95,6 +96,11 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
   @override
   void initState() {
     super.initState();
+    // Restore per-layer volumes saved at creation time.
+    _volume = widget.session.binauralVolume;
+    _backgroundVolume = widget.session.backgroundMusicVolume;
+    _ambienceVolume = widget.session.ambienceVolume;
+    _narrationVolume = widget.session.narrationVolume;
     // Initialize ElevenLabsService for TTS
     _initializeElevenLabsService();
     _loadAudio();
@@ -166,7 +172,8 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
     }
   }
   
-  /// Start the HealthKit observer
+  /// Start the HealthKit observer (reserved for premium users).
+  // ignore: unused_element
   Future<void> _startObserver() async {
     if (!_isObserverInitialized) {
       print('⚠️ Observer not initialized, cannot start');
@@ -1061,10 +1068,9 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
     });
     
     try {
-      // Start HealthKit observer to monitor heart rate during the session
-      // (This will check if already active and skip if so)
-      await _startObserver();
-      
+      // HealthKit heart rate monitoring is reserved for premium users.
+      // Observer is intentionally not started here.
+
       // Start all available audio players simultaneously.
       // NOTE: just_audio `play()` future may complete only when playback stops,
       // so we must not await here or the master clock won't start.
@@ -2561,94 +2567,141 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
               ),
               const SizedBox(width: 12),
               const Text(
-                'HealthKit Monitor',
+                'Heart Rate Monitor',
                 style: TextStyle(
-                  color: const Color(0xFF2F2F2F),
+                  color: Color(0xFF2F2F2F),
                   fontSize: 20,
                   fontWeight: FontWeight.bold,
                 ),
               ),
-            ],
-          ),
-          
-          const SizedBox(height: 16),
-          
-          // Observer Status
-          Row(
-            children: [
+              const Spacer(),
               Container(
-                width: 12,
-                height: 12,
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                 decoration: BoxDecoration(
-                  color: _isObserverActive ? const Color(0xFF7BAF8E) : const Color(0xFFD4867A),
-                  shape: BoxShape.circle,
+                  gradient: const LinearGradient(
+                    colors: [Color(0xFFB8A4D4), Color(0xFF7BC4B8)],
+                  ),
+                  borderRadius: BorderRadius.circular(20),
                 ),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+                child: const Row(
+                  mainAxisSize: MainAxisSize.min,
                   children: [
+                    Icon(Icons.star_rounded, color: Colors.white, size: 13),
+                    SizedBox(width: 4),
                     Text(
-                      _isObserverActive ? 'Observer Active' : 'Observer Inactive',
+                      'PREMIUM',
                       style: TextStyle(
-                      color: _isObserverActive ? const Color(0xFF7BAF8E) : const Color(0xFFD4867A),
-                      fontSize: 14,
-                        fontWeight: FontWeight.w500,
+                        color: Colors.white,
+                        fontSize: 11,
+                        fontWeight: FontWeight.bold,
+                        letterSpacing: 0.5,
                       ),
                     ),
-                    if (_observerStatus.isNotEmpty)
-                      Text(
-                        _observerStatus,
-                        style: TextStyle(
-                          color: const Color(0xFFA09890),
-                          fontSize: 12,
-                        ),
-                      ),
                   ],
                 ),
               ),
-              if (_isObserverActive && _sessionHeartRateData.isNotEmpty)
-                Text(
-                  '${_sessionHeartRateData.length} readings',
-                  style: const TextStyle(
-                    color: const Color(0xFF7A7570),
-                    fontSize: 12,
-                  ),
-                ),
             ],
           ),
-          
-          const SizedBox(height: 16),
-          
-          // Last 5 Heart Rate Readings
-          if (_sessionHeartRateData.isEmpty)
-            const Center(
-              child: Padding(
-                padding: EdgeInsets.all(20),
-                child: Text(
-                  'No heart rate data yet',
-                  style: TextStyle(color: Color(0xFFA09890)),
-                ),
-              ),
-            )
-          else ...[
-            const Text(
-              'Recent Heart Rate Readings',
-              style: TextStyle(
-                color: const Color(0xFF2F2F2F),
-                fontSize: 16,
-                fontWeight: FontWeight.bold,
+
+          const SizedBox(height: 20),
+
+          Container(
+            padding: const EdgeInsets.all(20),
+            decoration: BoxDecoration(
+              color: const Color(0xFFF3E4D7),
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(
+                color: const Color(0xFFB8A4D4).withOpacity(0.35),
               ),
             ),
-            const SizedBox(height: 12),
-            ...(_sessionHeartRateData.take(5).map((data) => _buildHeartRateItem(data))),
-          ],
+            child: Column(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFD4867A).withOpacity(0.12),
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(
+                    Icons.favorite_rounded,
+                    color: Color(0xFFD4867A),
+                    size: 36,
+                  ),
+                ),
+                const SizedBox(height: 16),
+                const Text(
+                  'Real-Time Heart Rate Insights',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    color: Color(0xFF2F2F2F),
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(height: 10),
+                const Text(
+                  'Unlock live heart rate monitoring during your sessions. '
+                  'Renovatio reads your Apple Watch data in real time and adapts '
+                  'your soundscape automatically — helping you reach deeper states '
+                  'of calm, focus, or recovery.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    color: Color(0xFF7A7570),
+                    fontSize: 14,
+                    height: 1.55,
+                  ),
+                ),
+                const SizedBox(height: 20),
+                const Divider(color: Color(0xFFD9D0C8)),
+                const SizedBox(height: 16),
+                const Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    _PremiumFeatureChip(label: 'Live BPM'),
+                    SizedBox(width: 8),
+                    _PremiumFeatureChip(label: 'Heart Zone Tracking'),
+                    SizedBox(width: 8),
+                    _PremiumFeatureChip(label: 'AI Adaptation'),
+                  ],
+                ),
+                const SizedBox(height: 20),
+                const Text(
+                  'This feature is available to premium members. '
+                  'We\'d love to have you on board — reach out to us and '
+                  'we\'ll take care of the rest.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    color: Color(0xFF7A7570),
+                    fontSize: 13,
+                    height: 1.5,
+                  ),
+                ),
+                const SizedBox(height: 16),
+                OutlinedButton.icon(
+                  onPressed: () {},
+                  icon: const Icon(Icons.mail_outline_rounded, size: 18),
+                  label: const Text('Contact Us to Upgrade'),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: const Color(0xFFB8A4D4),
+                    side: const BorderSide(color: Color(0xFFB8A4D4)),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 20,
+                      vertical: 12,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
         ],
       ),
     );
   }
   
+  // ignore: unused_element
   Widget _buildHeartRateItem(HeartRateData data) {
     final zone = data.heartRateZone;
     return Container(
@@ -2872,6 +2925,31 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
       'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
     ];
     return '${months[date.month - 1]} ${date.day}, ${date.year} at ${date.hour.toString().padLeft(2, '0')}:${date.minute.toString().padLeft(2, '0')}';
+  }
+}
+
+class _PremiumFeatureChip extends StatelessWidget {
+  final String label;
+  const _PremiumFeatureChip({required this.label});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      decoration: BoxDecoration(
+        color: const Color(0xFFB8A4D4).withOpacity(0.15),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: const Color(0xFFB8A4D4).withOpacity(0.4)),
+      ),
+      child: Text(
+        label,
+        style: const TextStyle(
+          color: Color(0xFFB8A4D4),
+          fontSize: 11,
+          fontWeight: FontWeight.w600,
+        ),
+      ),
+    );
   }
 }
 

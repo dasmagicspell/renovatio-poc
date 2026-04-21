@@ -18,6 +18,12 @@ class Session {
   /// so playback uses the same file name that was written (avoids id/path drift).
   final String? binauralClipRelativePath;
 
+  /// Per-layer playback volumes (0.0–1.0), set during soundscape creation.
+  final double binauralVolume;
+  final double backgroundMusicVolume;
+  final double ambienceVolume;
+  final double narrationVolume;
+
   Session({
     required this.id,
     required this.name,
@@ -31,6 +37,10 @@ class Session {
     this.binauralBaseFrequencyHz,
     this.binauralBeatFrequencyHz,
     this.binauralClipRelativePath,
+    this.binauralVolume = 0.8,
+    this.backgroundMusicVolume = 0.1,
+    this.ambienceVolume = 0.1,
+    this.narrationVolume = 0.35,
   });
 
   bool get hasCustomBinauralClip =>
@@ -51,6 +61,10 @@ class Session {
       'binauralBaseFrequencyHz': binauralBaseFrequencyHz,
       'binauralBeatFrequencyHz': binauralBeatFrequencyHz,
       'binauralClipRelativePath': binauralClipRelativePath,
+      'binauralVolume': binauralVolume,
+      'backgroundMusicVolume': backgroundMusicVolume,
+      'ambienceVolume': ambienceVolume,
+      'narrationVolume': narrationVolume,
     };
   }
 
@@ -69,6 +83,10 @@ class Session {
       binauralBaseFrequencyHz: (json['binauralBaseFrequencyHz'] as num?)?.toDouble(),
       binauralBeatFrequencyHz: (json['binauralBeatFrequencyHz'] as num?)?.toDouble(),
       binauralClipRelativePath: json['binauralClipRelativePath'] as String?,
+      binauralVolume: (json['binauralVolume'] as num?)?.toDouble() ?? 0.8,
+      backgroundMusicVolume: (json['backgroundMusicVolume'] as num?)?.toDouble() ?? 0.1,
+      ambienceVolume: (json['ambienceVolume'] as num?)?.toDouble() ?? 0.1,
+      narrationVolume: (json['narrationVolume'] as num?)?.toDouble() ?? 0.35,
     );
   }
 

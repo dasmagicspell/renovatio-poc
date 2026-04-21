@@ -1,6 +1,10 @@
 import 'dart:async';
+import 'dart:io';
+import 'dart:math';
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:uuid/uuid.dart';
 import 'package:just_audio/just_audio.dart';
 import 'models/session.dart';
@@ -25,8 +29,10 @@ class _NewSessionPageState extends State<NewSessionPage> {
   final _narrationTextController = TextEditingController();
   
   String? _selectedActivity;
-  /// Carrier frequency (Hz) for the binaural tone; used when generating the session clip.
+  /// Carrier frequency (Hz) for the binaural tone.
   double _baseFrequencyHz = 200.0;
+  /// Beat frequency (Hz) within the selected goal's band range.
+  double _beatFrequencyHz = 2.0;
   bool _isCreatingSoundscape = false;
   bool _isGeneratingScript = false;
   double _durationMinutes = 15.0;
@@ -55,6 +61,18 @@ class _NewSessionPageState extends State<NewSessionPage> {
   bool _isLoadingVoices = false;
   String? _voicesError;
 
+  // Per-layer volumes (persisted to Session)
+  double _binauralVolume = 0.8;
+  double _musicVolume = 0.1;
+  double _ambienceVolume = 0.1;
+  double _narrationVolume = 0.35;
+
+  // Full soundscape preview state
+  bool _isPreviewingAll = false;
+  bool _isLoadingFullPreview = false;
+  AudioPlayer? _binauralPreviewPlayer;
+  StreamSubscription? _binauralPreviewStateSubscription;
+
   static const _primary = Color(0xFF7BC4B8);
   static const _secondary = Color(0xFFB8A4D4);
   static const _background = Color(0xFFF3E4D7);
@@ -63,28 +81,25 @@ class _NewSessionPageState extends State<NewSessionPage> {
   static const _textSecondary = Color(0xFF7A7570);
   static const _border = Color(0xFFD9D0C8);
   
-  // Activity options with their corresponding frequency bands
-  final Map<String, String> _activityFrequencies = {
-    'Deep Sleep': 'Delta 1Hz',
-    'Sleep': 'Delta 2Hz',
-    'Deep Meditation': 'Delta 2Hz',
-    'Pain Relief': 'Delta 2Hz',
-    'Meditate': 'Theta 6Hz',
-    'Anxiety Relief': 'Theta 6Hz',
-    'Creativity': 'Theta 6Hz',
-    'Relax': 'Alpha 10Hz',
-    'Study': 'Alpha 10Hz',
-    'Light Focus': 'Alpha 10Hz',
-    'Exercise': 'Beta 20Hz',
-    'Focus': 'Beta 20Hz',
-    'Energy Boost': 'Gamma 40Hz',
+  // Activity options mapped to their brainwave band name.
+  static const Map<String, String> _activityBand = {
+    'Sleep': 'Delta',
+    'Pain Relief': 'Delta',
+    'Meditate': 'Theta',
+    'Anxiety Relief': 'Theta',
+    'Creativity': 'Theta',
+    'Relax': 'Alpha',
+    'Study': 'Alpha',
+    'Light Focus': 'Alpha',
+    'Exercise': 'Beta',
+    'Focus': 'Beta',
+    'Energy Boost': 'Gamma',
   };
-  
-  List<String> get _activities => _activityFrequencies.keys.toList();
-  
-  String _getFrequencyForActivity(String activity) {
-    return _activityFrequencies[activity] ?? '';
-  }
+
+  List<String> get _activities => _activityBand.keys.toList();
+
+  String _bandForActivity(String activity) =>
+      _activityBand[activity] ?? 'Alpha';
   
   // Background music options
   final List<String> _backgroundMusicOptions = [
@@ -153,6 +168,8 @@ class _NewSessionPageState extends State<NewSessionPage> {
     _backgroundAmbiencePreviewPlayer?.dispose();
     _voiceStateSubscription?.cancel();
     _voicePreviewPlayer?.dispose();
+    _binauralPreviewStateSubscription?.cancel();
+    _binauralPreviewPlayer?.dispose();
     super.dispose();
   }
   
@@ -198,6 +215,7 @@ class _NewSessionPageState extends State<NewSessionPage> {
         _isPlayingBackgroundMusic) {
       return;
     }
+    if (_isPreviewingAll) await _stopFullPreview();
     
     try {
       await _stopBackgroundMusicPreview();
@@ -284,6 +302,7 @@ class _NewSessionPageState extends State<NewSessionPage> {
         _isPlayingBackgroundAmbience) {
       return;
     }
+    if (_isPreviewingAll) await _stopFullPreview();
     
     try {
       await _stopBackgroundAmbiencePreview();
@@ -373,6 +392,7 @@ class _NewSessionPageState extends State<NewSessionPage> {
         _isLoadingVoicePreview) {
       return;
     }
+    if (_isPreviewingAll) await _stopFullPreview();
 
     try {
       await _stopVoicePreview();
@@ -449,6 +469,225 @@ class _NewSessionPageState extends State<NewSessionPage> {
     }
   }
   
+  // ---------------------------------------------------------------------------
+  // Binaural preview (pure-Dart WAV synthesis, no FFmpeg)
+  // ---------------------------------------------------------------------------
+
+  /// Synthesises a short stereo WAV entirely in Dart and returns the temp path.
+  Future<String> _generateBinauralPreviewWav({
+    required double baseFrequencyHz,
+    required double beatFrequencyHz,
+    int durationSeconds = 5,
+  }) async {
+    const sampleRate = 44100;
+    const numChannels = 2;
+    const bitsPerSample = 16;
+    final numSamples = sampleRate * durationSeconds;
+    final dataBytes = numSamples * numChannels * 2;
+
+    final wav = ByteData(44 + dataBytes);
+    int o = 0;
+
+    void writeAscii(String s) {
+      for (final c in s.codeUnits) {
+        wav.setUint8(o++, c);
+      }
+    }
+
+    writeAscii('RIFF');
+    wav.setUint32(o, 36 + dataBytes, Endian.little); o += 4;
+    writeAscii('WAVE');
+    writeAscii('fmt ');
+    wav.setUint32(o, 16, Endian.little); o += 4;
+    wav.setUint16(o, 1, Endian.little); o += 2;
+    wav.setUint16(o, numChannels, Endian.little); o += 2;
+    wav.setUint32(o, sampleRate, Endian.little); o += 4;
+    wav.setUint32(o, sampleRate * numChannels * 2, Endian.little); o += 4;
+    wav.setUint16(o, numChannels * 2, Endian.little); o += 2;
+    wav.setUint16(o, bitsPerSample, Endian.little); o += 2;
+    writeAscii('data');
+    wav.setUint32(o, dataBytes, Endian.little); o += 4;
+
+    final rightFreq = baseFrequencyHz + beatFrequencyHz;
+    for (int i = 0; i < numSamples; i++) {
+      final t = i / sampleRate;
+      final left = (sin(2 * pi * baseFrequencyHz * t) * 32767).round().clamp(-32768, 32767);
+      final right = (sin(2 * pi * rightFreq * t) * 32767).round().clamp(-32768, 32767);
+      wav.setInt16(o, left, Endian.little); o += 2;
+      wav.setInt16(o, right, Endian.little); o += 2;
+    }
+
+    final tempDir = await getTemporaryDirectory();
+    final file = File('${tempDir.path}/binaural_preview.wav');
+    await file.writeAsBytes(wav.buffer.asUint8List());
+    return file.path;
+  }
+
+  Future<void> _stopBinauralPreview() async {
+    await _binauralPreviewStateSubscription?.cancel();
+    _binauralPreviewStateSubscription = null;
+    if (_binauralPreviewPlayer != null) {
+      try {
+        await _binauralPreviewPlayer!.stop();
+        await _binauralPreviewPlayer!.dispose();
+        _binauralPreviewPlayer = null;
+      } catch (_) {}
+    }
+  }
+
+  Future<void> _startFullPreview() async {
+    if (_isPreviewingAll || _isLoadingFullPreview) return;
+
+    final hasBinaural = _selectedActivity != null;
+    final hasMusic = _selectedBackgroundMusic != null && _selectedBackgroundMusic != 'None';
+    final hasAmbience = _selectedBackgroundAmbience != null && _selectedBackgroundAmbience != 'None';
+    final hasNarration = _selectedVoice?.previewUrl != null &&
+        _selectedVoice!.previewUrl!.isNotEmpty;
+
+    if (!hasBinaural && !hasMusic && !hasAmbience && !hasNarration) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Select at least one layer (goal, music, ambience, or voice) to preview.',
+            ),
+            backgroundColor: Colors.orange,
+          ),
+        );
+      }
+      return;
+    }
+
+    setState(() => _isLoadingFullPreview = true);
+
+    // Stop any individually-playing previews first.
+    await _stopBackgroundMusicPreview();
+    await _stopBackgroundAmbiencePreview();
+    await _stopVoicePreview();
+    await _stopBinauralPreview();
+
+    try {
+      // Layer 1: Binaural (synthesised WAV)
+      if (hasBinaural) {
+        try {
+          final wavPath = await _generateBinauralPreviewWav(
+            baseFrequencyHz: _baseFrequencyHz,
+            beatFrequencyHz: _beatFrequencyHz,
+          );
+          _binauralPreviewPlayer = AudioPlayer();
+          _binauralPreviewStateSubscription =
+              _binauralPreviewPlayer!.playerStateStream.listen((_) {
+            if (mounted) setState(() {});
+          });
+          await _binauralPreviewPlayer!.setFilePath(wavPath);
+          await _binauralPreviewPlayer!.setLoopMode(LoopMode.one);
+          await _binauralPreviewPlayer!.setVolume(_binauralVolume);
+          unawaited(_binauralPreviewPlayer!.play());
+        } catch (e) {
+          debugPrint('Full preview – binaural error: $e');
+        }
+      }
+
+      // Layer 2: Background music
+      if (hasMusic) {
+        try {
+          final assetPath = await _resolvePreviewAssetPath(
+            folder: 'assets/audio/background-music',
+            selectedName: _selectedBackgroundMusic!,
+          );
+          if (assetPath != null) {
+            _backgroundMusicPreviewPlayer = AudioPlayer();
+            _playerStateSubscription =
+                _backgroundMusicPreviewPlayer!.playerStateStream.listen((state) {
+              if (mounted) setState(() => _isPlayingBackgroundMusic = state.playing);
+            });
+            await _backgroundMusicPreviewPlayer!.setAsset(assetPath);
+            await _backgroundMusicPreviewPlayer!.setLoopMode(LoopMode.one);
+            await _backgroundMusicPreviewPlayer!.setVolume(_musicVolume);
+            unawaited(_backgroundMusicPreviewPlayer!.play());
+            if (mounted) setState(() => _isPlayingBackgroundMusic = true);
+          }
+        } catch (e) {
+          debugPrint('Full preview – music error: $e');
+        }
+      }
+
+      // Layer 3: Ambience
+      if (hasAmbience) {
+        try {
+          final assetPath = await _resolvePreviewAssetPath(
+            folder: 'assets/audio/background-audio',
+            selectedName: _selectedBackgroundAmbience!,
+          );
+          if (assetPath != null) {
+            _backgroundAmbiencePreviewPlayer = AudioPlayer();
+            _ambienceStateSubscription =
+                _backgroundAmbiencePreviewPlayer!.playerStateStream.listen((state) {
+              if (mounted) setState(() => _isPlayingBackgroundAmbience = state.playing);
+            });
+            await _backgroundAmbiencePreviewPlayer!.setAsset(assetPath);
+            await _backgroundAmbiencePreviewPlayer!.setLoopMode(LoopMode.one);
+            await _backgroundAmbiencePreviewPlayer!.setVolume(_ambienceVolume);
+            unawaited(_backgroundAmbiencePreviewPlayer!.play());
+            if (mounted) setState(() => _isPlayingBackgroundAmbience = true);
+          }
+        } catch (e) {
+          debugPrint('Full preview – ambience error: $e');
+        }
+      }
+
+      // Layer 4: Narration voice sample (not looped – plays once)
+      if (hasNarration) {
+        try {
+          _voicePreviewPlayer = AudioPlayer();
+          _voiceStateSubscription =
+              _voicePreviewPlayer!.playerStateStream.listen((state) {
+            if (state.processingState == ProcessingState.completed) {
+              unawaited(_stopVoicePreview());
+              return;
+            }
+            if (mounted) {
+              setState(() {
+                _isPlayingVoicePreview = state.playing;
+                if (state.playing) _isLoadingVoicePreview = false;
+              });
+            }
+          });
+          await _voicePreviewPlayer!.setUrl(_selectedVoice!.previewUrl!);
+          await _voicePreviewPlayer!.setVolume(_narrationVolume);
+          unawaited(_voicePreviewPlayer!.play());
+          if (mounted) setState(() => _isPlayingVoicePreview = true);
+        } catch (e) {
+          debugPrint('Full preview – narration error: $e');
+        }
+      }
+
+      if (mounted) setState(() => _isPreviewingAll = true);
+    } catch (e) {
+      await _stopFullPreview();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error starting preview: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isLoadingFullPreview = false);
+    }
+  }
+
+  Future<void> _stopFullPreview() async {
+    await _stopBinauralPreview();
+    await _stopBackgroundMusicPreview();
+    await _stopBackgroundAmbiencePreview();
+    await _stopVoicePreview();
+    if (mounted) setState(() => _isPreviewingAll = false);
+  }
+
+  // ---------------------------------------------------------------------------
+
   Future<void> _createSession() async {
     if (!(_formKey.currentState?.validate() ?? false)) {
       return;
@@ -465,12 +704,11 @@ class _NewSessionPageState extends State<NewSessionPage> {
       final sessionId = const Uuid().v4();
       final clipRelativePath =
           BinauralAudioGenerator.relativePathForSessionBinauralClip(sessionId);
-      final beatHz = BinauralGoalFrequencies.beatHzForGoal(_selectedActivity!);
 
       final generated = await BinauralAudioGenerator.generateSessionBinauralClip(
         sessionId: sessionId,
         baseFrequencyHz: _baseFrequencyHz,
-        beatFrequencyHz: beatHz,
+        beatFrequencyHz: _beatFrequencyHz,
       );
 
       if (!generated) {
@@ -489,6 +727,9 @@ class _NewSessionPageState extends State<NewSessionPage> {
         return;
       }
 
+      // Stop any running preview before creating the session.
+      if (_isPreviewingAll) await _stopFullPreview();
+
       final session = Session(
         id: sessionId,
         name: _sessionNameController.text.trim(),
@@ -500,8 +741,12 @@ class _NewSessionPageState extends State<NewSessionPage> {
         narrationVoiceId: _selectedVoice?.voiceId,
         createdAt: DateTime.now(),
         binauralBaseFrequencyHz: _baseFrequencyHz,
-        binauralBeatFrequencyHz: beatHz,
+        binauralBeatFrequencyHz: _beatFrequencyHz,
         binauralClipRelativePath: clipRelativePath,
+        binauralVolume: _binauralVolume,
+        backgroundMusicVolume: _musicVolume,
+        ambienceVolume: _ambienceVolume,
+        narrationVolume: _narrationVolume,
       );
 
       await SessionStorageService.saveSession(session);
@@ -735,10 +980,10 @@ class _NewSessionPageState extends State<NewSessionPage> {
               
               const SizedBox(height: 24),
 
-              // Name & Goal Card
+              // Description & Duration Card
               _buildFormCard(
-                icon: Icons.tune,
-                title: 'Goal',
+                icon: Icons.edit_note_outlined,
+                title: 'Session',
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -756,118 +1001,6 @@ class _NewSessionPageState extends State<NewSessionPage> {
                       },
                     ),
                     const SizedBox(height: 20),
-                    _buildFieldLabel('GOAL'),
-                    const SizedBox(height: 8),
-                    DropdownButtonFormField<String>(
-                      value: _selectedActivity,
-                      decoration: _fieldDecoration(hint: 'Select your goal'),
-                      dropdownColor: _surface,
-                      style: const TextStyle(color: _textPrimary),
-                      icon: const Icon(Icons.arrow_drop_down, color: _textSecondary),
-                      items: _activities.map((activity) {
-                        final frequency = _getFrequencyForActivity(activity);
-                        return DropdownMenuItem<String>(
-                          value: activity,
-                          child: Text('$activity ($frequency)'),
-                        );
-                      }).toList(),
-                      onChanged: (value) {
-                        setState(() {
-                          _selectedActivity = value;
-                        });
-                      },
-                      validator: (value) {
-                        if (value == null || value.isEmpty) {
-                          return 'Please select an activity';
-                        }
-                        return null;
-                      },
-                    ),
-                    if (_selectedActivity != null) ...[
-                      const SizedBox(height: 12),
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                        decoration: BoxDecoration(
-                          color: _primary.withOpacity(0.07),
-                          borderRadius: BorderRadius.circular(8),
-                          border: Border.all(color: _primary.withOpacity(0.2)),
-                        ),
-                        child: Row(
-                          children: [
-                            Icon(Icons.graphic_eq, size: 16, color: _primary),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: Text(
-                                'Beat: ${_getFrequencyForActivity(_selectedActivity!)} '
-                                '(${BinauralGoalFrequencies.beatHzForGoal(_selectedActivity!)} Hz)',
-                                style: const TextStyle(
-                                  color: _primary,
-                                  fontSize: 13,
-                                  fontWeight: FontWeight.w500,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                    const SizedBox(height: 16),
-                    _buildFieldLabel('BASE FREQUENCY (CARRIER)'),
-                    const SizedBox(height: 8),
-                    SliderTheme(
-                      data: SliderTheme.of(context).copyWith(
-                        activeTrackColor: _primary,
-                        inactiveTrackColor: _primary.withOpacity(0.15),
-                        thumbColor: _primary,
-                        overlayColor: _primary.withOpacity(0.12),
-                        valueIndicatorColor: _primary,
-                        valueIndicatorTextStyle: const TextStyle(color: Colors.white),
-                      ),
-                      child: Slider(
-                        value: _baseFrequencyHz,
-                        min: 120,
-                        max: 440,
-                        divisions: 320,
-                        label: '${_baseFrequencyHz.round()} Hz',
-                        onChanged: (value) {
-                          setState(() {
-                            _baseFrequencyHz = value;
-                          });
-                        },
-                      ),
-                    ),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Text('120 Hz', style: TextStyle(color: _textSecondary, fontSize: 12)),
-                        Text(
-                          '${_baseFrequencyHz.round()} Hz',
-                          style: const TextStyle(
-                            color: _textPrimary,
-                            fontSize: 14,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                        Text('440 Hz', style: TextStyle(color: _textSecondary, fontSize: 12)),
-                      ],
-                    ),
-                    const SizedBox(height: 6),
-                    Text(
-                      'A ${BinauralAudioGenerator.sessionLoopDurationSeconds}s loop will be generated and played on repeat.',
-                      style: TextStyle(color: _textSecondary, fontSize: 12),
-                    ),
-                  ],
-                ),
-              ),
-              
-              const SizedBox(height: 16),
-
-              // Duration Card
-              _buildFormCard(
-                icon: Icons.timer_outlined,
-                title: 'Duration',
-                child: Column(
-                  children: [
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
@@ -918,6 +1051,181 @@ class _NewSessionPageState extends State<NewSessionPage> {
                         Text('15 mins', style: TextStyle(color: _textSecondary, fontSize: 12)),
                         Text('1 hour', style: TextStyle(color: _textSecondary, fontSize: 12)),
                       ],
+                    ),
+                  ],
+                ),
+              ),
+
+              const SizedBox(height: 16),
+
+              // Goal & Binaural Frequency Card
+              _buildFormCard(
+                icon: Icons.tune,
+                title: 'Goal',
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _buildFieldLabel('GOAL'),
+                    const SizedBox(height: 8),
+                    DropdownButtonFormField<String>(
+                      value: _selectedActivity,
+                      decoration: _fieldDecoration(hint: 'Select your goal'),
+                      dropdownColor: _surface,
+                      style: const TextStyle(color: _textPrimary),
+                      icon: const Icon(Icons.arrow_drop_down, color: _textSecondary),
+                      items: _activities.map((activity) {
+                        final band = _bandForActivity(activity);
+                        return DropdownMenuItem<String>(
+                          value: activity,
+                          child: Text('$activity ($band)'),
+                        );
+                      }).toList(),
+                      onChanged: (value) {
+                        setState(() {
+                          _selectedActivity = value;
+                          if (value != null) {
+                            // Reset beat frequency to the goal's default when goal changes.
+                            _beatFrequencyHz =
+                                BinauralGoalFrequencies.defaultBeatHzForGoal(value);
+                          }
+                        });
+                      },
+                      validator: (value) {
+                        if (value == null || value.isEmpty) {
+                          return 'Please select an activity';
+                        }
+                        return null;
+                      },
+                    ),
+                    if (_selectedActivity != null) ...[
+                      const SizedBox(height: 16),
+                      _buildFieldLabel('BEAT FREQUENCY'),
+                      const SizedBox(height: 4),
+                      Builder(builder: (context) {
+                        final range = BinauralGoalFrequencies.bandRangeForGoal(
+                          _selectedActivity!,
+                        );
+                        return Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            SliderTheme(
+                              data: SliderTheme.of(context).copyWith(
+                                activeTrackColor: _primary,
+                                inactiveTrackColor: _primary.withOpacity(0.15),
+                                thumbColor: _primary,
+                                overlayColor: _primary.withOpacity(0.12),
+                                valueIndicatorColor: _primary,
+                                valueIndicatorTextStyle:
+                                    const TextStyle(color: Colors.white),
+                              ),
+                              child: Slider(
+                                value: _beatFrequencyHz.clamp(
+                                  range.minHz,
+                                  range.maxHz,
+                                ),
+                                min: range.minHz,
+                                max: range.maxHz,
+                                divisions: range.divisions,
+                                label: '${_beatFrequencyHz.toStringAsFixed(1)} Hz',
+                                onChanged: (value) {
+                                  setState(() => _beatFrequencyHz = value);
+                                },
+                              ),
+                            ),
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Text(
+                                  '${range.minHz.toStringAsFixed(1)} Hz',
+                                  style: TextStyle(
+                                    color: _textSecondary,
+                                    fontSize: 12,
+                                  ),
+                                ),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 10,
+                                    vertical: 4,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: _primary.withOpacity(0.10),
+                                    borderRadius: BorderRadius.circular(20),
+                                  ),
+                                  child: Text(
+                                    '${_beatFrequencyHz.toStringAsFixed(1)} Hz · '
+                                    '${_bandForActivity(_selectedActivity!)}',
+                                    style: const TextStyle(
+                                      color: _primary,
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                ),
+                                Text(
+                                  '${range.maxHz.toStringAsFixed(0)} Hz',
+                                  style: TextStyle(
+                                    color: _textSecondary,
+                                    fontSize: 12,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
+                        );
+                      }),
+                    ],
+                    const SizedBox(height: 16),
+                    _buildFieldLabel('BASE FREQUENCY (CARRIER)'),
+                    const SizedBox(height: 8),
+                    SliderTheme(
+                      data: SliderTheme.of(context).copyWith(
+                        activeTrackColor: _primary,
+                        inactiveTrackColor: _primary.withOpacity(0.15),
+                        thumbColor: _primary,
+                        overlayColor: _primary.withOpacity(0.12),
+                        valueIndicatorColor: _primary,
+                        valueIndicatorTextStyle: const TextStyle(color: Colors.white),
+                      ),
+                      child: Slider(
+                        value: _baseFrequencyHz,
+                        min: 120,
+                        max: 440,
+                        divisions: 320,
+                        label: '${_baseFrequencyHz.round()} Hz',
+                        onChanged: (value) {
+                          setState(() {
+                            _baseFrequencyHz = value;
+                          });
+                        },
+                      ),
+                    ),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text('120 Hz', style: TextStyle(color: _textSecondary, fontSize: 12)),
+                        Text(
+                          '${_baseFrequencyHz.round()} Hz',
+                          style: const TextStyle(
+                            color: _textPrimary,
+                            fontSize: 14,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        Text('440 Hz', style: TextStyle(color: _textSecondary, fontSize: 12)),
+                      ],
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      'A ${BinauralAudioGenerator.sessionLoopDurationSeconds}s loop will be generated and played on repeat.',
+                      style: TextStyle(color: _textSecondary, fontSize: 12),
+                    ),
+                    const SizedBox(height: 16),
+                    _buildVolumeRow(
+                      value: _binauralVolume,
+                      onChanged: (v) {
+                        setState(() => _binauralVolume = v);
+                        _binauralPreviewPlayer?.setVolume(v);
+                      },
                     ),
                   ],
                 ),
@@ -988,6 +1296,14 @@ class _NewSessionPageState extends State<NewSessionPage> {
                         ),
                       ),
                     ],
+                    const SizedBox(height: 12),
+                    _buildVolumeRow(
+                      value: _musicVolume,
+                      onChanged: (v) {
+                        setState(() => _musicVolume = v);
+                        _backgroundMusicPreviewPlayer?.setVolume(v);
+                      },
+                    ),
                   ],
                 ),
               ),
@@ -1051,6 +1367,14 @@ class _NewSessionPageState extends State<NewSessionPage> {
                         ),
                       ),
                     ],
+                    const SizedBox(height: 12),
+                    _buildVolumeRow(
+                      value: _ambienceVolume,
+                      onChanged: (v) {
+                        setState(() => _ambienceVolume = v);
+                        _backgroundAmbiencePreviewPlayer?.setVolume(v);
+                      },
+                    ),
                   ],
                 ),
               ),
@@ -1098,6 +1422,14 @@ class _NewSessionPageState extends State<NewSessionPage> {
                         ),
                       ),
                     ],
+                    const SizedBox(height: 12),
+                    _buildVolumeRow(
+                      value: _narrationVolume,
+                      onChanged: (v) {
+                        setState(() => _narrationVolume = v);
+                        _voicePreviewPlayer?.setVolume(v);
+                      },
+                    ),
                     const SizedBox(height: 20),
                     _buildFieldLabel('SCRIPT'),
                     const SizedBox(height: 4),
@@ -1148,8 +1480,103 @@ class _NewSessionPageState extends State<NewSessionPage> {
                 ),
               ),
               
-              const SizedBox(height: 32),
-              
+              const SizedBox(height: 16),
+
+              // Preview Soundscape Card
+              _buildFormCard(
+                icon: Icons.hearing,
+                title: 'Preview Soundscape',
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Listen to all active layers at the volumes you set before creating.',
+                      style: TextStyle(color: _textSecondary, fontSize: 13),
+                    ),
+                    const SizedBox(height: 14),
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton.icon(
+                        onPressed: _isLoadingFullPreview
+                            ? null
+                            : (_isPreviewingAll ? _stopFullPreview : _startFullPreview),
+                        icon: _isLoadingFullPreview
+                            ? const SizedBox(
+                                width: 18,
+                                height: 18,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: Colors.white,
+                                ),
+                              )
+                            : Icon(
+                                _isPreviewingAll
+                                    ? Icons.stop_rounded
+                                    : Icons.play_arrow_rounded,
+                                color: Colors.white,
+                                size: 20,
+                              ),
+                        label: Text(
+                          _isLoadingFullPreview
+                              ? 'Preparing preview…'
+                              : _isPreviewingAll
+                                  ? 'Stop Preview'
+                                  : 'Preview Soundscape',
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 15,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: _isPreviewingAll
+                              ? const Color(0xFFD4867A)
+                              : _secondary,
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          elevation: 0,
+                        ),
+                      ),
+                    ),
+                    if (_isPreviewingAll) ...[
+                      const SizedBox(height: 10),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          _buildLayerIndicator(
+                            icon: Icons.headphones,
+                            label: 'Binaural',
+                            active: _binauralPreviewPlayer != null,
+                          ),
+                          const SizedBox(width: 12),
+                          _buildLayerIndicator(
+                            icon: Icons.music_note,
+                            label: 'Music',
+                            active: _isPlayingBackgroundMusic,
+                          ),
+                          const SizedBox(width: 12),
+                          _buildLayerIndicator(
+                            icon: Icons.park,
+                            label: 'Ambience',
+                            active: _isPlayingBackgroundAmbience,
+                          ),
+                          const SizedBox(width: 12),
+                          _buildLayerIndicator(
+                            icon: Icons.record_voice_over,
+                            label: 'Voice',
+                            active: _isPlayingVoicePreview,
+                          ),
+                        ],
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+
+              const SizedBox(height: 16),
+
               // Create Soundscape Button
               SizedBox(
                 width: double.infinity,
@@ -1409,6 +1836,37 @@ class _NewSessionPageState extends State<NewSessionPage> {
     );
   }
 
+  Widget _buildLayerIndicator({
+    required IconData icon,
+    required String label,
+    required bool active,
+  }) {
+    final color = active ? const Color(0xFF7BAF8E) : _border;
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          padding: const EdgeInsets.all(7),
+          decoration: BoxDecoration(
+            color: active ? color.withOpacity(0.15) : _surface,
+            shape: BoxShape.circle,
+            border: Border.all(color: color),
+          ),
+          child: Icon(icon, size: 14, color: active ? color : _textSecondary),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          label,
+          style: TextStyle(
+            fontSize: 10,
+            color: active ? color : _textSecondary,
+            fontWeight: active ? FontWeight.w600 : FontWeight.normal,
+          ),
+        ),
+      ],
+    );
+  }
+
   Widget _buildFieldLabel(String label) {
     return Text(
       label,
@@ -1418,6 +1876,49 @@ class _NewSessionPageState extends State<NewSessionPage> {
         fontWeight: FontWeight.w600,
         letterSpacing: 0.3,
       ),
+    );
+  }
+
+  Widget _buildVolumeRow({
+    required double value,
+    required ValueChanged<double> onChanged,
+  }) {
+    return Row(
+      children: [
+        const Icon(Icons.volume_up, color: _textSecondary, size: 16),
+        const SizedBox(width: 6),
+        _buildFieldLabel('VOLUME'),
+        Expanded(
+          child: SliderTheme(
+            data: SliderTheme.of(context).copyWith(
+              activeTrackColor: _primary,
+              inactiveTrackColor: _primary.withOpacity(0.15),
+              thumbColor: _primary,
+              overlayColor: _primary.withOpacity(0.12),
+              trackHeight: 3,
+              thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 7),
+              valueIndicatorColor: _primary,
+              valueIndicatorTextStyle: const TextStyle(color: Colors.white, fontSize: 11),
+            ),
+            child: Slider(
+              value: value,
+              min: 0.0,
+              max: 1.0,
+              divisions: 20,
+              label: '${(value * 100).round()}%',
+              onChanged: onChanged,
+            ),
+          ),
+        ),
+        SizedBox(
+          width: 38,
+          child: Text(
+            '${(value * 100).round()}%',
+            style: const TextStyle(color: _textSecondary, fontSize: 12),
+            textAlign: TextAlign.end,
+          ),
+        ),
+      ],
     );
   }
 
