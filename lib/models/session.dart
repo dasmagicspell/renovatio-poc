@@ -24,6 +24,12 @@ class Session {
   final double ambienceVolume;
   final double narrationVolume;
 
+  /// Per-layer enabled flags, set during soundscape creation.
+  final bool goalEnabled;
+  final bool musicEnabled;
+  final bool ambienceEnabled;
+  final bool narrationEnabled;
+
   Session({
     required this.id,
     required this.name,
@@ -41,6 +47,10 @@ class Session {
     this.backgroundMusicVolume = 0.1,
     this.ambienceVolume = 0.1,
     this.narrationVolume = 0.35,
+    this.goalEnabled = true,
+    this.musicEnabled = true,
+    this.ambienceEnabled = true,
+    this.narrationEnabled = true,
   });
 
   bool get hasCustomBinauralClip =>
@@ -65,6 +75,10 @@ class Session {
       'backgroundMusicVolume': backgroundMusicVolume,
       'ambienceVolume': ambienceVolume,
       'narrationVolume': narrationVolume,
+      'goalEnabled': goalEnabled,
+      'musicEnabled': musicEnabled,
+      'ambienceEnabled': ambienceEnabled,
+      'narrationEnabled': narrationEnabled,
     };
   }
 
@@ -87,6 +101,10 @@ class Session {
       backgroundMusicVolume: (json['backgroundMusicVolume'] as num?)?.toDouble() ?? 0.1,
       ambienceVolume: (json['ambienceVolume'] as num?)?.toDouble() ?? 0.1,
       narrationVolume: (json['narrationVolume'] as num?)?.toDouble() ?? 0.35,
+      goalEnabled: json['goalEnabled'] as bool? ?? true,
+      musicEnabled: json['musicEnabled'] as bool? ?? true,
+      ambienceEnabled: json['ambienceEnabled'] as bool? ?? true,
+      narrationEnabled: json['narrationEnabled'] as bool? ?? true,
     );
   }
 

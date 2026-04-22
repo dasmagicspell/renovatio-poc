@@ -103,10 +103,10 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
     _narrationVolume = widget.session.narrationVolume;
     // Initialize ElevenLabsService for TTS
     _initializeElevenLabsService();
-    _loadAudio();
-    _loadBackgroundMusic();
-    _loadNatureAmbience();
-    _loadNarration();
+    if (widget.session.goalEnabled) _loadAudio();
+    if (widget.session.musicEnabled) _loadBackgroundMusic();
+    if (widget.session.ambienceEnabled) _loadNatureAmbience();
+    if (widget.session.narrationEnabled) _loadNarration();
     _initializeObserver();
   }
   

@@ -61,6 +61,12 @@ class _NewSessionPageState extends State<NewSessionPage> {
   bool _isLoadingVoices = false;
   String? _voicesError;
 
+  // Per-layer enabled toggles
+  bool _goalEnabled = true;
+  bool _musicEnabled = true;
+  bool _ambienceEnabled = true;
+  bool _narrationEnabled = true;
+
   // Per-layer volumes (persisted to Session)
   double _binauralVolume = 0.8;
   double _musicVolume = 0.1;
@@ -696,35 +702,53 @@ class _NewSessionPageState extends State<NewSessionPage> {
       return;
     }
 
+    final anyEnabled = _goalEnabled || _musicEnabled || _ambienceEnabled || _narrationEnabled;
+    if (!anyEnabled) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Enable at least one layer before creating a soundscape.'),
+            backgroundColor: Colors.orange,
+          ),
+        );
+      }
+      return;
+    }
+
     setState(() {
       _isCreatingSoundscape = true;
     });
 
     try {
       final sessionId = const Uuid().v4();
-      final clipRelativePath =
-          BinauralAudioGenerator.relativePathForSessionBinauralClip(sessionId);
 
-      final generated = await BinauralAudioGenerator.generateSessionBinauralClip(
-        sessionId: sessionId,
-        baseFrequencyHz: _baseFrequencyHz,
-        beatFrequencyHz: _beatFrequencyHz,
-      );
+      // Only generate binaural clip when the goal layer is active.
+      String? clipRelativePath;
+      if (_goalEnabled) {
+        clipRelativePath =
+            BinauralAudioGenerator.relativePathForSessionBinauralClip(sessionId);
 
-      if (!generated) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text(
-                'Could not generate binaural audio. '
-                'If you are on desktop, ensure ffmpeg is installed and on PATH.',
+        final generated = await BinauralAudioGenerator.generateSessionBinauralClip(
+          sessionId: sessionId,
+          baseFrequencyHz: _baseFrequencyHz,
+          beatFrequencyHz: _beatFrequencyHz,
+        );
+
+        if (!generated) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text(
+                  'Could not generate binaural audio. '
+                  'If you are on desktop, ensure ffmpeg is installed and on PATH.',
+                ),
+                backgroundColor: Colors.red,
+                duration: Duration(seconds: 5),
               ),
-              backgroundColor: Colors.red,
-              duration: Duration(seconds: 5),
-            ),
-          );
+            );
+          }
+          return;
         }
-        return;
       }
 
       // Stop any running preview before creating the session.
@@ -733,20 +757,24 @@ class _NewSessionPageState extends State<NewSessionPage> {
       final session = Session(
         id: sessionId,
         name: _sessionNameController.text.trim(),
-        activity: _selectedActivity!,
+        activity: _goalEnabled ? (_selectedActivity ?? '') : '',
         durationMinutes: _durationMinutes.toInt(),
-        backgroundMusic: _selectedBackgroundMusic!,
-        backgroundAmbience: _selectedBackgroundAmbience ?? 'None',
+        backgroundMusic: _musicEnabled ? (_selectedBackgroundMusic ?? 'None') : 'None',
+        backgroundAmbience: _ambienceEnabled ? (_selectedBackgroundAmbience ?? 'None') : 'None',
         narrationText: _narrationTextController.text.trim(),
         narrationVoiceId: _selectedVoice?.voiceId,
         createdAt: DateTime.now(),
-        binauralBaseFrequencyHz: _baseFrequencyHz,
-        binauralBeatFrequencyHz: _beatFrequencyHz,
+        binauralBaseFrequencyHz: _goalEnabled ? _baseFrequencyHz : null,
+        binauralBeatFrequencyHz: _goalEnabled ? _beatFrequencyHz : null,
         binauralClipRelativePath: clipRelativePath,
         binauralVolume: _binauralVolume,
         backgroundMusicVolume: _musicVolume,
         ambienceVolume: _ambienceVolume,
         narrationVolume: _narrationVolume,
+        goalEnabled: _goalEnabled,
+        musicEnabled: _musicEnabled,
+        ambienceEnabled: _ambienceEnabled,
+        narrationEnabled: _narrationEnabled,
       );
 
       await SessionStorageService.saveSession(session);
@@ -1062,6 +1090,15 @@ class _NewSessionPageState extends State<NewSessionPage> {
               _buildFormCard(
                 icon: Icons.tune,
                 title: 'Goal',
+                enabled: _goalEnabled,
+                trailing: Checkbox(
+                  value: _goalEnabled,
+                  onChanged: (v) => setState(() => _goalEnabled = v ?? _goalEnabled),
+                  activeColor: _primary,
+                  side: const BorderSide(color: _border, width: 1.5),
+                  materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  visualDensity: VisualDensity.compact,
+                ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -1091,8 +1128,8 @@ class _NewSessionPageState extends State<NewSessionPage> {
                         });
                       },
                       validator: (value) {
-                        if (value == null || value.isEmpty) {
-                          return 'Please select an activity';
+                        if (_goalEnabled && (value == null || value.isEmpty)) {
+                          return 'Please select a goal';
                         }
                         return null;
                       },
@@ -1237,6 +1274,15 @@ class _NewSessionPageState extends State<NewSessionPage> {
               _buildFormCard(
                 icon: Icons.music_note_outlined,
                 title: 'Background Music',
+                enabled: _musicEnabled,
+                trailing: Checkbox(
+                  value: _musicEnabled,
+                  onChanged: (v) => setState(() => _musicEnabled = v ?? _musicEnabled),
+                  activeColor: _primary,
+                  side: const BorderSide(color: _border, width: 1.5),
+                  materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  visualDensity: VisualDensity.compact,
+                ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -1266,8 +1312,8 @@ class _NewSessionPageState extends State<NewSessionPage> {
                               });
                             },
                             validator: (value) {
-                              if (value == null || value.isEmpty) {
-                                return 'Please select background music';
+                              if (_musicEnabled && (value == null || value.isEmpty)) {
+                                return 'Please select a track';
                               }
                               return null;
                             },
@@ -1314,6 +1360,15 @@ class _NewSessionPageState extends State<NewSessionPage> {
               _buildFormCard(
                 icon: Icons.park_outlined,
                 title: 'Ambience',
+                enabled: _ambienceEnabled,
+                trailing: Checkbox(
+                  value: _ambienceEnabled,
+                  onChanged: (v) => setState(() => _ambienceEnabled = v ?? _ambienceEnabled),
+                  activeColor: _primary,
+                  side: const BorderSide(color: _border, width: 1.5),
+                  materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  visualDensity: VisualDensity.compact,
+                ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -1385,6 +1440,15 @@ class _NewSessionPageState extends State<NewSessionPage> {
               _buildFormCard(
                 icon: Icons.record_voice_over_outlined,
                 title: 'Narration',
+                enabled: _narrationEnabled,
+                trailing: Checkbox(
+                  value: _narrationEnabled,
+                  onChanged: (v) => setState(() => _narrationEnabled = v ?? _narrationEnabled),
+                  activeColor: _primary,
+                  side: const BorderSide(color: _border, width: 1.5),
+                  materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  visualDensity: VisualDensity.compact,
+                ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -1783,55 +1847,71 @@ class _NewSessionPageState extends State<NewSessionPage> {
     required IconData icon,
     required String title,
     required Widget child,
+    Widget? trailing,
+    bool enabled = true,
   }) {
-    return Container(
-      decoration: BoxDecoration(
-        color: _surface,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: _border),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            blurRadius: 8,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // Card header
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 16, 16, 12),
-            child: Row(
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(8),
-                  decoration: BoxDecoration(
-                    color: _primary.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Icon(icon, color: _primary, size: 18),
-                ),
-                const SizedBox(width: 10),
-                Text(
-                  title,
-                  style: const TextStyle(
-                    color: _textPrimary,
-                    fontSize: 15,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-              ],
+    return AnimatedOpacity(
+      opacity: enabled ? 1.0 : 0.45,
+      duration: const Duration(milliseconds: 200),
+      child: Container(
+        decoration: BoxDecoration(
+          color: _surface,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: enabled ? _border : _border.withOpacity(0.5)),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(enabled ? 0.05 : 0.02),
+              blurRadius: 8,
+              offset: const Offset(0, 2),
             ),
-          ),
-          const Divider(height: 1, color: _border),
-          // Card body
-          Padding(
-            padding: const EdgeInsets.all(16),
-            child: child,
-          ),
-        ],
+          ],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Card header
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 16, 16, 12),
+              child: Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: (enabled ? _primary : _textSecondary).withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Icon(
+                      icon,
+                      color: enabled ? _primary : _textSecondary,
+                      size: 18,
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      title,
+                      style: TextStyle(
+                        color: enabled ? _textPrimary : _textSecondary,
+                        fontSize: 15,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                  if (trailing != null) trailing,
+                ],
+              ),
+            ),
+            const Divider(height: 1, color: _border),
+            // Card body
+            IgnorePointer(
+              ignoring: !enabled,
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: child,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
