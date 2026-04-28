@@ -2,6 +2,23 @@ import 'dart:io';
 import 'dart:convert';
 import 'package:dio/dio.dart';
 import 'package:path_provider/path_provider.dart';
+import 'narration_script_parser.dart';
+import 'silence_generator.dart';
+import 'ffmpeg_executor.dart';
+
+/// Result returned by [ElevenLabsService.generateSegmentedNarration].
+class NarrationGenerationResult {
+  /// Ordered segment file paths for [ConcatenatingAudioSource] playback.
+  final List<String> segmentPaths;
+
+  /// Single merged MP3 file for export. Null if ffmpeg stitching failed.
+  final String? mergedPath;
+
+  const NarrationGenerationResult({
+    required this.segmentPaths,
+    this.mergedPath,
+  });
+}
 
 /// Service for ElevenLabs Text-to-Speech API
 /// Documentation: https://docs.elevenlabs.io/api-reference/text-to-speech
@@ -311,6 +328,217 @@ class ElevenLabsService {
     );
   }
   
+  /// Parses [narrationScript] for [pause:Xs] markup, then generates ElevenLabs
+  /// TTS audio for each text segment sequentially (with a 1-second gap between
+  /// API calls) and writes a silent WAV file for each pause segment.
+  ///
+  /// Results are cached on disk keyed by [sessionId] + [narrationHash] +
+  /// [voiceId]. Subsequent calls with the same key return the cached files
+  /// without hitting the API.
+  ///
+  /// Returns a [NarrationGenerationResult] with segment paths for playback and
+  /// a merged MP3 path for export, or `null` if generation fails entirely.
+  static Future<NarrationGenerationResult?> generateSegmentedNarration({
+    required String narrationScript,
+    required String sessionId,
+    required String narrationHash,
+    String? voiceId,
+  }) async {
+    if (_apiKey == null) {
+      throw Exception('ElevenLabs API key not initialized');
+    }
+
+    try {
+      final directory = await getApplicationDocumentsDirectory();
+      final voiceSuffix = voiceId != null ? '_$voiceId' : '';
+      final segmentDir = Directory(
+        '${directory.path}/generated_audio'
+        '/narration_${sessionId}_$narrationHash$voiceSuffix',
+      );
+      final manifestFile = File('${segmentDir.path}/manifest.json');
+
+      // Return cached result if manifest and all segment files still exist.
+      if (await manifestFile.exists()) {
+        try {
+          final manifest =
+              json.decode(await manifestFile.readAsString()) as Map;
+          final cachedPaths = List<String>.from(manifest['segments'] as List);
+          final existChecks =
+              await Future.wait(cachedPaths.map((p) => File(p).exists()));
+          if (existChecks.every((e) => e)) {
+            final cachedMerged = manifest['merged'] as String?;
+            final mergedExists = cachedMerged != null &&
+                await File(cachedMerged).exists();
+            print('✅ Narration: using ${cachedPaths.length} cached segments');
+            return NarrationGenerationResult(
+              segmentPaths: cachedPaths,
+              mergedPath: mergedExists ? cachedMerged : null,
+            );
+          }
+        } catch (_) {
+          // Corrupt manifest — regenerate.
+        }
+      }
+
+      final segments = NarrationScriptParser.parse(narrationScript);
+      if (segments.isEmpty) return null;
+
+      if (!await segmentDir.exists()) {
+        await segmentDir.create(recursive: true);
+      }
+
+      // Resolve voice once before the sequential loop.
+      final resolvedVoiceId = voiceId ?? await getMeditationVoiceId();
+
+      // Generate segments one at a time. TTS requests wait 1 second after
+      // each API call to stay within ElevenLabs' rate limits.
+      // Silence segments are pure Dart and do not count against the delay.
+      final orderedPaths = <String>[];
+      bool firstApiCall = true;
+
+      for (int i = 0; i < segments.length; i++) {
+        final segment = segments[i];
+        String? result;
+
+        if (segment is TextNarrationSegment) {
+          if (!firstApiCall) {
+            await Future.delayed(const Duration(seconds: 1));
+          }
+          result = await _generateTextSegment(
+            text: segment.text,
+            voiceId: resolvedVoiceId,
+            filePath: '${segmentDir.path}/seg_$i.mp3',
+            index: i,
+          );
+          firstApiCall = false;
+        } else if (segment is PauseNarrationSegment) {
+          result = await _generateSilenceSegment(
+            duration: segment.duration,
+            filePath: '${segmentDir.path}/seg_$i.wav',
+            index: i,
+          );
+        }
+
+        if (result == null) {
+          print('❌ Narration: segment $i failed — aborting.');
+          return null;
+        }
+        orderedPaths.add(result);
+      }
+
+      // Stitch all segments into one merged MP3 for export.
+      final mergedPath = await _stitchSegments(
+        segmentPaths: orderedPaths,
+        outputPath: '${segmentDir.path}/merged.mp3',
+      );
+
+      // Persist manifest (includes merged path if stitching succeeded).
+      await manifestFile.writeAsString(
+        json.encode({
+          'version': 1,
+          'segments': orderedPaths,
+          if (mergedPath != null) 'merged': mergedPath,
+        }),
+      );
+
+      print('✅ Narration: generated ${orderedPaths.length} segments');
+      return NarrationGenerationResult(
+        segmentPaths: orderedPaths,
+        mergedPath: mergedPath,
+      );
+    } catch (e) {
+      print('❌ Error generating segmented narration: $e');
+      rethrow;
+    }
+  }
+
+  static Future<String?> _generateTextSegment({
+    required String text,
+    required String voiceId,
+    required String filePath,
+    required int index,
+  }) async {
+    final file = File(filePath);
+    if (await file.exists()) {
+      print('  Segment $index: cached text segment');
+      return filePath;
+    }
+    try {
+      final tempPath = await generateSpeech(
+        text: text,
+        voiceId: voiceId,
+        stability: 0.6,
+        similarityBoost: 0.8,
+        style: 0.2,
+        useSpeakerBoost: true,
+        outputFormat: 'mp3_44100_128',
+      );
+      if (tempPath == null) return null;
+      await File(tempPath).copy(filePath);
+      try {
+        await File(tempPath).delete();
+      } catch (_) {}
+      print('  Segment $index: text segment generated');
+      return filePath;
+    } catch (e) {
+      print('  Segment $index: failed — $e');
+      return null;
+    }
+  }
+
+  static Future<String?> _generateSilenceSegment({
+    required Duration duration,
+    required String filePath,
+    required int index,
+  }) async {
+    try {
+      final file = File(filePath);
+      if (!await file.exists()) {
+        await SilenceGenerator.generate(filePath: filePath, duration: duration);
+      }
+      print('  Segment $index: pause (${duration.inMilliseconds} ms)');
+      return filePath;
+    } catch (e) {
+      print('  Segment $index: silence failed — $e');
+      return null;
+    }
+  }
+
+  /// Concatenates [segmentPaths] in order into a single MP3 at [outputPath]
+  /// using ffmpeg's concat demuxer. Returns [outputPath] on success, null on failure.
+  static Future<String?> _stitchSegments({
+    required List<String> segmentPaths,
+    required String outputPath,
+  }) async {
+    try {
+      // The concat demuxer requires a text file listing the inputs.
+      final concatListPath = '${outputPath}_concat_list.txt';
+      final concatContent = segmentPaths
+          .map((p) => "file '${p.replaceAll("'", r"\'")}'")
+          .join('\n');
+      await File(concatListPath).writeAsString(concatContent);
+
+      final command =
+          '-f concat -safe 0 -i "$concatListPath" -c:a libmp3lame -q:a 4 "$outputPath"';
+      final result = await FFmpegExecutor.execute(command);
+
+      try {
+        await File(concatListPath).delete();
+      } catch (_) {}
+
+      if (result.isSuccess) {
+        print('✅ Narration segments stitched → $outputPath');
+        return outputPath;
+      } else {
+        print('❌ Narration stitch failed: ${result.output}');
+        return null;
+      }
+    } catch (e) {
+      print('❌ Error stitching narration segments: $e');
+      return null;
+    }
+  }
+
   // Cached meditation voice ID (will be fetched on first use)
   static String? _cachedMeditationVoiceId;
   
@@ -340,11 +568,9 @@ class ElevenLabsService {
           orElse: () => throw Exception('Voice not found'),
         );
         
-        if (voice != null) {
-          _cachedMeditationVoiceId = voice.voiceId;
-          print('✅ Selected meditation voice: ${voice.name} (ID: ${voice.voiceId})');
-          return voice.voiceId;
-        }
+        _cachedMeditationVoiceId = voice.voiceId;
+        print('✅ Selected meditation voice: ${voice.name} (ID: ${voice.voiceId})');
+        return voice.voiceId;
       }
       
       // If no meditation voice found, use the first available voice as fallback
