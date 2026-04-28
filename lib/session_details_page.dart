@@ -826,106 +826,85 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
   }
   
   Future<void> _loadNarration() async {
-    // Skip if narration text is empty
     if (widget.session.narrationText.trim().isEmpty) {
       print('No narration text provided, skipping narration loading');
       return;
     }
-    
+
     setState(() {
       _isLoadingNarration = true;
     });
-    
+
     try {
-      // Get the narration file path based on session ID and narration text hash
-      final narrationFilePath = await _getNarrationFilePath();
-      final narrationFile = File(narrationFilePath);
-      
-      // Check if narration audio file already exists
-      if (await narrationFile.exists()) {
-        print('Using existing narration file: ${narrationFile.path}');
-        // File exists, load it directly
-        await _initializeNarrationPlayer(narrationFile.path);
-      } else {
-        // File doesn't exist, generate it using AI
-        print('Narration file not found, generating with AI...');
-        setState(() {
-          _isGeneratingNarration = true;
-        });
-        
-        try {
-          // Generate narration audio using ElevenLabs TTS
-          // Uses the voice chosen by the user, or auto-selects a meditation voice as fallback
-          final generatedFilePath = await ElevenLabsService.generateMeditationNarration(
-            text: widget.session.narrationText,
-            voiceId: widget.session.narrationVoiceId,
+      final narrationHash = _getNarrationHash(widget.session.narrationText);
+
+      // Generate (or load from cache) all segments concurrently.
+      setState(() => _isGeneratingNarration = true);
+
+      NarrationGenerationResult? narrationResult;
+      try {
+        narrationResult = await ElevenLabsService.generateSegmentedNarration(
+          narrationScript: widget.session.narrationText,
+          sessionId: widget.session.id,
+          narrationHash: narrationHash,
+          voiceId: widget.session.narrationVoiceId,
+        );
+      } catch (e) {
+        print('❌ Error generating narration audio: $e');
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Error generating narration audio: $e'),
+              backgroundColor: Colors.red,
+              duration: const Duration(seconds: 5),
+            ),
           );
-          
-          if (generatedFilePath != null) {
-            // Move/rename the generated file to our expected location
-            final generatedFile = File(generatedFilePath);
-            if (await generatedFile.exists()) {
-              // Copy to our expected location
-              await generatedFile.copy(narrationFilePath);
-              // Optionally delete the original timestamped file
-              try {
-                await generatedFile.delete();
-              } catch (e) {
-                print('Could not delete original file: $e');
-              }
-              
-              print('✅ Narration audio generated and saved to: $narrationFilePath');
-              await _initializeNarrationPlayer(narrationFilePath);
-            } else {
-              throw Exception('Generated file was not created');
-            }
-          } else {
-            throw Exception('Failed to generate narration audio');
-          }
-        } catch (e) {
-          print('❌ Error generating narration audio: $e');
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text('Error generating narration audio: $e'),
-                backgroundColor: Colors.red,
-                duration: const Duration(seconds: 5),
-              ),
-            );
-          }
-          setState(() {
-            _isLoadingNarration = false;
-            _isGeneratingNarration = false;
-          });
-          return;
-        } finally {
-          setState(() {
-            _isGeneratingNarration = false;
-          });
         }
+        setState(() {
+          _isLoadingNarration = false;
+          _isGeneratingNarration = false;
+        });
+        return;
+      } finally {
+        if (mounted) setState(() => _isGeneratingNarration = false);
       }
+
+      if (narrationResult == null || narrationResult.segmentPaths.isEmpty) {
+        print('❌ No narration segments were generated');
+        setState(() => _isLoadingNarration = false);
+        return;
+      }
+
+      // Store the merged path so the export system can include narration.
+      _narrationPath = narrationResult.mergedPath;
+
+      await _initializeNarrationPlayer(narrationResult.segmentPaths);
     } catch (e) {
       setState(() {
         _isLoadingNarration = false;
         _isGeneratingNarration = false;
       });
-      
       print('Error loading narration: $e');
-      // Don't show error snackbar for narration as it's optional
     }
   }
-  
-  /// Initialize the narration audio player with the given file path
-  Future<void> _initializeNarrationPlayer(String filePath) async {
+
+  /// Initialises the narration [AudioPlayer] from an ordered list of segment
+  /// file paths (text chunks and silence files) using [ConcatenatingAudioSource].
+  Future<void> _initializeNarrationPlayer(List<String> segmentPaths) async {
     try {
-      // Create and initialize narration player
       final player = AudioPlayer();
-      await player.setFilePath(filePath);
-      await player.setLoopMode(LoopMode.one);
+
+      final source = ConcatenatingAudioSource(
+        children: segmentPaths
+            .map((path) => AudioSource.file(path))
+            .toList(),
+      );
+
+      await player.setAudioSource(source);
+      await player.setLoopMode(LoopMode.all);
       await player.setVolume(_narrationVolume);
       await player.setSpeed(_narrationSpeed);
-      
-      // Listen to player state changes
+
       player.playerStateStream.listen((state) {
         if (mounted) {
           setState(() {
@@ -933,18 +912,17 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
           });
         }
       });
-      
+
       setState(() {
         _narrationPlayer = player;
         _isLoadingNarration = false;
-        _narrationPath = filePath; // Store path for export
+        // _narrationPath is intentionally left null for segmented narration;
+        // export support for multi-segment narration will be added separately.
       });
-      
-      print('Narration loaded successfully');
+
+      print('✅ Narration loaded (${segmentPaths.length} segments)');
     } catch (e) {
-      setState(() {
-        _isLoadingNarration = false;
-      });
+      setState(() => _isLoadingNarration = false);
       print('Error initializing narration player: $e');
       rethrow;
     }
@@ -1553,22 +1531,6 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
     return digest.toString().substring(0, 16); // Use first 16 chars for shorter filename
   }
   
-  /// Get the path for narration audio file based on session ID and narration text hash
-  /// Uses MP3 format (ElevenLabs default output format)
-  Future<String> _getNarrationFilePath() async {
-    final directory = await getApplicationDocumentsDirectory();
-    final audioDir = Directory('${directory.path}/generated_audio');
-    if (!await audioDir.exists()) {
-      await audioDir.create(recursive: true);
-    }
-    
-    final narrationHash = _getNarrationHash(widget.session.narrationText);
-    final voiceSuffix = widget.session.narrationVoiceId != null
-        ? '_${widget.session.narrationVoiceId}'
-        : '';
-    final fileName = 'narration_${widget.session.id}_$narrationHash$voiceSuffix.mp3';
-    return '${audioDir.path}/$fileName';
-  }
 
   @override
   Widget build(BuildContext context) {
