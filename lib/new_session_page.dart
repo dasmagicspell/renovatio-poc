@@ -16,6 +16,7 @@ import 'services/config_service.dart';
 import 'services/binaural_audio_generator.dart';
 import 'services/binaural_goal_frequencies.dart';
 import 'services/user_music_library_service.dart';
+import 'services/user_ambience_library_service.dart';
 import 'chatgpt_service.dart';
 import 'session_details_page.dart';
 
@@ -67,6 +68,10 @@ class _NewSessionPageState extends State<NewSessionPage> {
   // User-uploaded music library
   List<UserMusicTrack> _userMusicTracks = [];
   bool _isUploadingMusic = false;
+
+  // User-uploaded ambience library
+  List<UserMusicTrack> _userAmbienceTracks = [];
+  bool _isUploadingAmbience = false;
 
   // Per-layer enabled toggles
   bool _goalEnabled = true;
@@ -136,6 +141,7 @@ class _NewSessionPageState extends State<NewSessionPage> {
     super.initState();
     _loadVoices();
     _loadUserMusicTracks();
+    _loadUserAmbienceTracks();
   }
 
   Future<void> _loadVoices() async {
@@ -175,6 +181,11 @@ class _NewSessionPageState extends State<NewSessionPage> {
   Future<void> _loadUserMusicTracks() async {
     final tracks = await UserMusicLibraryService.getAllTracks();
     if (mounted) setState(() => _userMusicTracks = tracks);
+  }
+
+  Future<void> _loadUserAmbienceTracks() async {
+    final tracks = await UserAmbienceLibraryService.getAllTracks();
+    if (mounted) setState(() => _userAmbienceTracks = tracks);
   }
 
   /// Opens a file picker, copies the chosen audio file into app storage,
@@ -368,6 +379,188 @@ class _NewSessionPageState extends State<NewSessionPage> {
     await _loadUserMusicTracks();
   }
 
+  Future<void> _uploadAmbienceFile() async {
+    if (_isUploadingAmbience) return;
+
+    final result = await FilePicker.platform.pickFiles(
+      type: FileType.custom,
+      allowedExtensions: ['mp3', 'm4a', 'wav', 'aac', 'flac', 'ogg'],
+      allowMultiple: false,
+    );
+    if (result == null || result.files.isEmpty) return;
+
+    final pickedFile = result.files.first;
+    final sourcePath = pickedFile.path;
+
+    if (sourcePath == null) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Could not access the selected file.'),
+            backgroundColor: Colors.orange,
+          ),
+        );
+      }
+      return;
+    }
+
+    final fileSize = pickedFile.size;
+    if (fileSize > _maxUploadBytes) {
+      if (mounted) {
+        final sizeMB = (fileSize / (1024 * 1024)).toStringAsFixed(1);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'File is too large (${sizeMB} MB). '
+              'Please use a file under 50 MB.',
+            ),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 4),
+          ),
+        );
+      }
+      return;
+    }
+
+    setState(() => _isUploadingAmbience = true);
+
+    try {
+      final rawName = pickedFile.name;
+      final dotIndex = rawName.lastIndexOf('.');
+      final baseName = dotIndex != -1 ? rawName.substring(0, dotIndex) : rawName;
+
+      final isDuplicate = _userAmbienceTracks
+          .any((t) => t.displayName.toLowerCase() == baseName.toLowerCase());
+      final displayName = isDuplicate
+          ? '$baseName (${DateTime.now().millisecondsSinceEpoch})'
+          : baseName;
+
+      final track = await UserAmbienceLibraryService.addTrack(
+        sourceFilePath: sourcePath,
+        displayName: displayName,
+      );
+
+      await _loadUserAmbienceTracks();
+
+      if (mounted) {
+        if (_isPlayingBackgroundAmbience) await _stopBackgroundAmbiencePreview();
+        setState(() =>
+            _selectedBackgroundAmbience =
+                UserAmbienceLibraryService.sessionKey(track.id));
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('"${track.displayName}" added to your library.'),
+            backgroundColor: Colors.green,
+            duration: const Duration(seconds: 2),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error uploading ambience: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isUploadingAmbience = false);
+    }
+  }
+
+  Future<void> _deleteUserAmbienceTrack(UserMusicTrack track) async {
+    final allSessions = await SessionStorageService.getAllSessions();
+    final usingCount = UserAmbienceLibraryService.countSessionsUsing(
+      track.id,
+      allSessions.map((s) => s.backgroundAmbience).toList(),
+    );
+
+    if (!mounted) return;
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: _surface,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Text(
+          'Remove Ambience',
+          style: TextStyle(color: _textPrimary, fontWeight: FontWeight.bold),
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Remove "${track.displayName}" from your library?',
+              style: const TextStyle(color: _textPrimary),
+            ),
+            if (usingCount > 0) ...[
+              const SizedBox(height: 12),
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: Colors.orange.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.orange.withOpacity(0.4)),
+                ),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Icon(
+                      Icons.warning_amber_rounded,
+                      color: Colors.orange,
+                      size: 16,
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        '$usingCount soundscape${usingCount == 1 ? '' : 's'} '
+                        '${usingCount == 1 ? 'uses' : 'use'} this track and '
+                        'will lose its background ambience.',
+                        style: const TextStyle(
+                          color: Colors.orange,
+                          fontSize: 13,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            style: TextButton.styleFrom(foregroundColor: Colors.red),
+            child: const Text('Remove'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true || !mounted) return;
+
+    final trackKey = UserAmbienceLibraryService.sessionKey(track.id);
+    if (_selectedBackgroundAmbience == trackKey && _isPlayingBackgroundAmbience) {
+      await _stopBackgroundAmbiencePreview();
+    }
+
+    await UserAmbienceLibraryService.deleteTrack(track.id);
+
+    if (_selectedBackgroundAmbience == trackKey) {
+      setState(() => _selectedBackgroundAmbience = null);
+    }
+
+    await _loadUserAmbienceTracks();
+  }
+
   @override
   void dispose() {
     _sessionNameController.dispose();
@@ -544,27 +737,48 @@ class _NewSessionPageState extends State<NewSessionPage> {
         },
       );
 
-      final selectedAmbience = _selectedBackgroundAmbience!;
-      final assetPath = await _resolvePreviewAssetPath(
-        folder: 'assets/audio/background-audio',
-        selectedName: selectedAmbience,
-      );
-      if (assetPath == null) {
-        debugPrint(
-          'Background ambience preview failed: selected="$selectedAmbience", folder="assets/audio/background-audio"',
-        );
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Preview file not found for "$selectedAmbience".'),
-              backgroundColor: Colors.orange,
-            ),
-          );
+      if (UserAmbienceLibraryService.isUserTrackKey(_selectedBackgroundAmbience!)) {
+        final trackId = UserAmbienceLibraryService.trackIdFromKey(
+            _selectedBackgroundAmbience!);
+        final filePath = trackId != null
+            ? await UserAmbienceLibraryService.resolveFilePath(trackId)
+            : null;
+
+        if (filePath == null) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('Ambience file not found in your library.'),
+                backgroundColor: Colors.orange,
+              ),
+            );
+          }
+          return;
         }
-        return;
+        await _backgroundAmbiencePreviewPlayer!.setFilePath(filePath);
+      } else {
+        final selectedAmbience = _selectedBackgroundAmbience!;
+        final assetPath = await _resolvePreviewAssetPath(
+          folder: 'assets/audio/background-audio',
+          selectedName: selectedAmbience,
+        );
+        if (assetPath == null) {
+          debugPrint(
+            'Background ambience preview failed: selected="$selectedAmbience", folder="assets/audio/background-audio"',
+          );
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('Preview file not found for "$selectedAmbience".'),
+                backgroundColor: Colors.orange,
+              ),
+            );
+          }
+          return;
+        }
+        await _backgroundAmbiencePreviewPlayer!.setAsset(assetPath);
       }
-      
-      await _backgroundAmbiencePreviewPlayer!.setAsset(assetPath);
+
       await _backgroundAmbiencePreviewPlayer!.play();
       
       if (mounted) {
@@ -835,8 +1049,9 @@ class _NewSessionPageState extends State<NewSessionPage> {
             _backgroundMusicPreviewPlayer = AudioPlayer();
             _playerStateSubscription =
                 _backgroundMusicPreviewPlayer!.playerStateStream.listen((state) {
-              if (mounted)
+              if (mounted) {
                 setState(() => _isPlayingBackgroundMusic = state.playing);
+              }
             });
             if (isAsset) {
               await _backgroundMusicPreviewPlayer!.setAsset(resolvedPath);
@@ -856,17 +1071,39 @@ class _NewSessionPageState extends State<NewSessionPage> {
       // Layer 3: Ambience
       if (hasAmbience) {
         try {
-          final assetPath = await _resolvePreviewAssetPath(
-            folder: 'assets/audio/background-audio',
-            selectedName: _selectedBackgroundAmbience!,
-          );
-          if (assetPath != null) {
+          String? resolvedPath;
+          bool isAsset = false;
+
+          if (UserAmbienceLibraryService.isUserTrackKey(
+              _selectedBackgroundAmbience!)) {
+            final trackId = UserAmbienceLibraryService.trackIdFromKey(
+                _selectedBackgroundAmbience!);
+            if (trackId != null) {
+              resolvedPath =
+                  await UserAmbienceLibraryService.resolveFilePath(trackId);
+            }
+          } else {
+            resolvedPath = await _resolvePreviewAssetPath(
+              folder: 'assets/audio/background-audio',
+              selectedName: _selectedBackgroundAmbience!,
+            );
+            isAsset = resolvedPath != null;
+          }
+
+          if (resolvedPath != null) {
             _backgroundAmbiencePreviewPlayer = AudioPlayer();
             _ambienceStateSubscription =
-                _backgroundAmbiencePreviewPlayer!.playerStateStream.listen((state) {
-              if (mounted) setState(() => _isPlayingBackgroundAmbience = state.playing);
+                _backgroundAmbiencePreviewPlayer!.playerStateStream.listen(
+                    (state) {
+              if (mounted) {
+                setState(() => _isPlayingBackgroundAmbience = state.playing);
+              }
             });
-            await _backgroundAmbiencePreviewPlayer!.setAsset(assetPath);
+            if (isAsset) {
+              await _backgroundAmbiencePreviewPlayer!.setAsset(resolvedPath);
+            } else {
+              await _backgroundAmbiencePreviewPlayer!.setFilePath(resolvedPath);
+            }
             await _backgroundAmbiencePreviewPlayer!.setLoopMode(LoopMode.one);
             await _backgroundAmbiencePreviewPlayer!.setVolume(_ambienceVolume);
             unawaited(_backgroundAmbiencePreviewPlayer!.play());
@@ -1690,17 +1927,40 @@ class _NewSessionPageState extends State<NewSessionPage> {
                         Expanded(
                           child: DropdownButtonFormField<String>(
                             value: _selectedBackgroundAmbience,
+                            isExpanded: true,
                             decoration: _fieldDecoration(hint: 'Select an ambience'),
                             dropdownColor: _surface,
                             style: const TextStyle(color: _textPrimary),
                             icon: const Icon(Icons.arrow_drop_down, color: _textSecondary),
-                            items: _backgroundAmbienceOptions.map((ambience) {
-                              return DropdownMenuItem<String>(
-                                value: ambience,
-                                child: Text(ambience),
-                              );
-                            }).toList(),
+                            items: [
+                              // Built-in bundled options
+                              ..._backgroundAmbienceOptions.map((ambience) {
+                                return DropdownMenuItem<String>(
+                                  value: ambience,
+                                  child: Text(ambience),
+                                );
+                              }),
+                              // User-uploaded ambience tracks
+                              if (_userAmbienceTracks.isNotEmpty) ...[
+                                const DropdownMenuItem<String>(
+                                  enabled: false,
+                                  value: '__ambience_divider__',
+                                  child: Divider(height: 1),
+                                ),
+                                ..._userAmbienceTracks.map((track) {
+                                  return DropdownMenuItem<String>(
+                                    value: UserAmbienceLibraryService
+                                        .sessionKey(track.id),
+                                    child: Text(
+                                      track.displayName,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  );
+                                }),
+                              ],
+                            ],
                             onChanged: (value) async {
+                              if (value == '__ambience_divider__') return;
                               if (_isPlayingBackgroundAmbience) {
                                 await _stopBackgroundAmbiencePreview();
                               }
@@ -1708,12 +1968,22 @@ class _NewSessionPageState extends State<NewSessionPage> {
                                 _selectedBackgroundAmbience = value;
                               });
                             },
+                            validator: (value) {
+                              if (_ambienceEnabled &&
+                                  (value == null ||
+                                      value.isEmpty ||
+                                      value == '__ambience_divider__')) {
+                                return 'Please select an ambience';
+                              }
+                              return null;
+                            },
                           ),
                         ),
                         const SizedBox(width: 8),
                         _buildPreviewButton(
                           enabled: _selectedBackgroundAmbience != null &&
-                              _selectedBackgroundAmbience != 'None',
+                              _selectedBackgroundAmbience != 'None' &&
+                              _selectedBackgroundAmbience != '__ambience_divider__',
                           isPlaying: _isPlayingBackgroundAmbience,
                           onPlay: _playBackgroundAmbiencePreview,
                           onStop: _stopBackgroundAmbiencePreview,
@@ -1740,6 +2010,45 @@ class _NewSessionPageState extends State<NewSessionPage> {
                         setState(() => _ambienceVolume = v);
                         _backgroundAmbiencePreviewPlayer?.setVolume(v);
                       },
+                    ),
+                    const SizedBox(height: 12),
+                    // Upload button
+                    SizedBox(
+                      width: double.infinity,
+                      child: OutlinedButton.icon(
+                        onPressed: _isUploadingAmbience ? null : _uploadAmbienceFile,
+                        icon: _isUploadingAmbience
+                            ? const SizedBox(
+                                width: 16,
+                                height: 16,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: _primary,
+                                ),
+                              )
+                            : const Icon(Icons.upload_file_outlined, size: 18),
+                        label: Text(
+                          _isUploadingAmbience
+                              ? 'Uploading…'
+                              : 'Upload Ambience File',
+                        ),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: _primary,
+                          side: BorderSide(color: _primary.withOpacity(0.45)),
+                          padding: const EdgeInsets.symmetric(vertical: 10),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'MP3, M4A, WAV, AAC, FLAC, OGG · max 50 MB',
+                      style: TextStyle(
+                        color: _textSecondary,
+                        fontSize: 11,
+                      ),
                     ),
                   ],
                 ),
@@ -2266,6 +2575,54 @@ class _NewSessionPageState extends State<NewSessionPage> {
         fontSize: 13,
         fontWeight: FontWeight.w600,
         letterSpacing: 0.3,
+      ),
+    );
+  }
+
+  // ignore: unused_element
+  Widget _buildUserAmbienceTrackTile(UserMusicTrack track) {
+    final trackKey = UserAmbienceLibraryService.sessionKey(track.id);
+    final isSelected = _selectedBackgroundAmbience == trackKey;
+    return Container(
+      margin: const EdgeInsets.only(bottom: 6),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: isSelected ? _primary.withOpacity(0.07) : _background,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(
+          color: isSelected ? _primary.withOpacity(0.4) : _border,
+        ),
+      ),
+      child: Row(
+        children: [
+          Icon(
+            Icons.audio_file_outlined,
+            size: 16,
+            color: isSelected ? _primary : _textSecondary,
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              track.displayName,
+              style: TextStyle(
+                color: isSelected ? _primary : _textPrimary,
+                fontSize: 13,
+                fontWeight:
+                    isSelected ? FontWeight.w600 : FontWeight.normal,
+              ),
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+          const SizedBox(width: 8),
+          GestureDetector(
+            onTap: () => _deleteUserAmbienceTrack(track),
+            child: Icon(
+              Icons.delete_outline,
+              size: 18,
+              color: Colors.red.shade400,
+            ),
+          ),
+        ],
       ),
     );
   }

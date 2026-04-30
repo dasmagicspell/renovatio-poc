@@ -17,6 +17,7 @@ import 'services/elevenlabs_service.dart';
 import 'services/config_service.dart';
 import 'services/binaural_audio_generator.dart';
 import 'services/user_music_library_service.dart';
+import 'services/user_ambience_library_service.dart';
 import 'audio_processor.dart';
 
 class SessionDetailsPage extends StatefulWidget {
@@ -699,7 +700,15 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
   }
 
   Future<void> _loadNatureAmbience() async {
-    final slug = _ambienceAssetSlug(widget.session.backgroundAmbience);
+    final backgroundAmbience = widget.session.backgroundAmbience;
+
+    // User-uploaded ambience track
+    if (UserAmbienceLibraryService.isUserTrackKey(backgroundAmbience)) {
+      await _loadUserBackgroundAmbience();
+      return;
+    }
+
+    final slug = _ambienceAssetSlug(backgroundAmbience);
     if (slug == null) {
       // "None" or unrecognised — nothing to load.
       setState(() => _isLoadingAmbience = false);
@@ -757,6 +766,62 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
         _isLoadingAmbience = false;
       });
       print('Error loading ambience: $e');
+    }
+  }
+
+  /// Loads a user-uploaded ambience track identified by a `user_ambience:<uuid>` key.
+  Future<void> _loadUserBackgroundAmbience() async {
+    final trackId = UserAmbienceLibraryService.trackIdFromKey(
+      widget.session.backgroundAmbience,
+    );
+    if (trackId == null) {
+      setState(() => _isLoadingAmbience = false);
+      return;
+    }
+
+    setState(() => _isLoadingAmbience = true);
+
+    try {
+      final track = await UserAmbienceLibraryService.getTrackById(trackId);
+      final filePath =
+          await UserAmbienceLibraryService.resolveFilePath(trackId);
+
+      if (filePath == null) {
+        setState(() => _isLoadingAmbience = false);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text(
+                'Uploaded ambience file is missing. It may have been deleted from your library.',
+              ),
+              backgroundColor: Colors.orange,
+              duration: Duration(seconds: 4),
+            ),
+          );
+        }
+        return;
+      }
+
+      final player = AudioPlayer();
+      await player.setFilePath(filePath);
+      await player.setLoopMode(LoopMode.one);
+      await player.setVolume(_ambienceVolume);
+      await player.setSpeed(_ambienceSpeed);
+
+      player.playerStateStream.listen((state) {
+        if (mounted) setState(() => _isPlayingAmbience = state.playing);
+      });
+
+      setState(() {
+        _natureAmbiencePlayer = player;
+        _isLoadingAmbience = false;
+        _ambiencePath = filePath;
+      });
+
+      print('User ambience loaded: ${track?.displayName}');
+    } catch (e) {
+      setState(() => _isLoadingAmbience = false);
+      print('Error loading user ambience: $e');
     }
   }
   
