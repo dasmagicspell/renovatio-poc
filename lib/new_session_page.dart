@@ -17,6 +17,7 @@ import 'services/binaural_audio_generator.dart';
 import 'services/binaural_goal_frequencies.dart';
 import 'services/user_music_library_service.dart';
 import 'services/user_ambience_library_service.dart';
+import 'services/user_narration_library_service.dart';
 import 'chatgpt_service.dart';
 import 'session_details_page.dart';
 
@@ -72,6 +73,16 @@ class _NewSessionPageState extends State<NewSessionPage> {
   // User-uploaded ambience library
   List<UserMusicTrack> _userAmbienceTracks = [];
   bool _isUploadingAmbience = false;
+
+  // User-uploaded narration library
+  List<UserMusicTrack> _userNarrationTracks = [];
+  bool _isUploadingNarration = false;
+  String? _selectedUserNarration;
+
+  // Audio player for user narration file preview
+  AudioPlayer? _narrationFilePreviewPlayer;
+  bool _isPlayingNarrationFile = false;
+  StreamSubscription? _narrationFileStateSubscription;
 
   // Per-layer enabled toggles
   bool _goalEnabled = true;
@@ -142,6 +153,7 @@ class _NewSessionPageState extends State<NewSessionPage> {
     _loadVoices();
     _loadUserMusicTracks();
     _loadUserAmbienceTracks();
+    _loadUserNarrationTracks();
   }
 
   Future<void> _loadVoices() async {
@@ -186,6 +198,11 @@ class _NewSessionPageState extends State<NewSessionPage> {
   Future<void> _loadUserAmbienceTracks() async {
     final tracks = await UserAmbienceLibraryService.getAllTracks();
     if (mounted) setState(() => _userAmbienceTracks = tracks);
+  }
+
+  Future<void> _loadUserNarrationTracks() async {
+    final tracks = await UserNarrationLibraryService.getAllTracks();
+    if (mounted) setState(() => _userNarrationTracks = tracks);
   }
 
   /// Opens a file picker, copies the chosen audio file into app storage,
@@ -379,6 +396,262 @@ class _NewSessionPageState extends State<NewSessionPage> {
     await _loadUserMusicTracks();
   }
 
+  Future<void> _playNarrationFilePreview() async {
+    if (_selectedUserNarration == null ||
+        _selectedUserNarration == 'None' ||
+        _isPlayingNarrationFile) {
+      return;
+    }
+    if (_isPreviewingAll) await _stopFullPreview();
+
+    try {
+      await _stopNarrationFilePreview();
+      _narrationFilePreviewPlayer = AudioPlayer();
+
+      _narrationFileStateSubscription =
+          _narrationFilePreviewPlayer!.playerStateStream.listen(
+        (state) {
+          if (mounted) setState(() => _isPlayingNarrationFile = state.playing);
+        },
+        onError: (Object error, StackTrace stackTrace) {
+          debugPrint('Narration file player stream error: $error');
+        },
+      );
+
+      final trackId =
+          UserNarrationLibraryService.trackIdFromKey(_selectedUserNarration!);
+      final filePath = trackId != null
+          ? await UserNarrationLibraryService.resolveFilePath(trackId)
+          : null;
+
+      if (filePath == null) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Narration file not found in your library.'),
+              backgroundColor: Colors.orange,
+            ),
+          );
+        }
+        return;
+      }
+
+      await _narrationFilePreviewPlayer!.setFilePath(filePath);
+      await _narrationFilePreviewPlayer!.play();
+      if (mounted) setState(() => _isPlayingNarrationFile = true);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error playing preview: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _stopNarrationFilePreview() async {
+    await _narrationFileStateSubscription?.cancel();
+    _narrationFileStateSubscription = null;
+
+    if (_narrationFilePreviewPlayer != null) {
+      try {
+        await _narrationFilePreviewPlayer!.stop();
+        await _narrationFilePreviewPlayer!.dispose();
+        _narrationFilePreviewPlayer = null;
+      } catch (e) {
+        // ignore
+      }
+    }
+
+    if (mounted) setState(() => _isPlayingNarrationFile = false);
+  }
+
+  Future<void> _uploadNarrationFile() async {
+    if (_isUploadingNarration) return;
+
+    final result = await FilePicker.platform.pickFiles(
+      type: FileType.custom,
+      allowedExtensions: ['mp3', 'm4a', 'wav', 'aac', 'flac', 'ogg'],
+      allowMultiple: false,
+    );
+    if (result == null || result.files.isEmpty) return;
+
+    final pickedFile = result.files.first;
+    final sourcePath = pickedFile.path;
+
+    if (sourcePath == null) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Could not access the selected file.'),
+            backgroundColor: Colors.orange,
+          ),
+        );
+      }
+      return;
+    }
+
+    final fileSize = pickedFile.size;
+    if (fileSize > _maxUploadBytes) {
+      if (mounted) {
+        final sizeMB = (fileSize / (1024 * 1024)).toStringAsFixed(1);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'File is too large ($sizeMB MB). '
+              'Please use a file under 50 MB.',
+            ),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 4),
+          ),
+        );
+      }
+      return;
+    }
+
+    setState(() => _isUploadingNarration = true);
+
+    try {
+      final rawName = pickedFile.name;
+      final dotIndex = rawName.lastIndexOf('.');
+      final baseName = dotIndex != -1 ? rawName.substring(0, dotIndex) : rawName;
+
+      final isDuplicate = _userNarrationTracks
+          .any((t) => t.displayName.toLowerCase() == baseName.toLowerCase());
+      final displayName = isDuplicate
+          ? '$baseName (${DateTime.now().millisecondsSinceEpoch})'
+          : baseName;
+
+      final track = await UserNarrationLibraryService.addTrack(
+        sourceFilePath: sourcePath,
+        displayName: displayName,
+      );
+
+      await _loadUserNarrationTracks();
+
+      if (mounted) {
+        if (_isPlayingNarrationFile) await _stopNarrationFilePreview();
+        setState(() =>
+            _selectedUserNarration =
+                UserNarrationLibraryService.sessionKey(track.id));
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('"${track.displayName}" added to your library.'),
+            backgroundColor: Colors.green,
+            duration: const Duration(seconds: 2),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error uploading narration: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isUploadingNarration = false);
+    }
+  }
+
+  Future<void> _deleteUserNarrationTrack(UserMusicTrack track) async {
+    final allSessions = await SessionStorageService.getAllSessions();
+    final usingCount = UserNarrationLibraryService.countSessionsUsing(
+      track.id,
+      allSessions
+          .map((s) => s.narrationAudioKey ?? '')
+          .toList(),
+    );
+
+    if (!mounted) return;
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: _surface,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Text(
+          'Remove Narration',
+          style: TextStyle(color: _textPrimary, fontWeight: FontWeight.bold),
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Remove "${track.displayName}" from your library?',
+              style: const TextStyle(color: _textPrimary),
+            ),
+            if (usingCount > 0) ...[
+              const SizedBox(height: 12),
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: Colors.orange.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.orange.withOpacity(0.4)),
+                ),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Icon(
+                      Icons.warning_amber_rounded,
+                      color: Colors.orange,
+                      size: 16,
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        '$usingCount soundscape${usingCount == 1 ? '' : 's'} '
+                        '${usingCount == 1 ? 'uses' : 'use'} this file and '
+                        'will lose its custom narration.',
+                        style: const TextStyle(
+                          color: Colors.orange,
+                          fontSize: 13,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            style: TextButton.styleFrom(foregroundColor: Colors.red),
+            child: const Text('Remove'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true || !mounted) return;
+
+    final trackKey = UserNarrationLibraryService.sessionKey(track.id);
+    if (_selectedUserNarration == trackKey && _isPlayingNarrationFile) {
+      await _stopNarrationFilePreview();
+    }
+
+    await UserNarrationLibraryService.deleteTrack(track.id);
+
+    if (_selectedUserNarration == trackKey) {
+      setState(() => _selectedUserNarration = null);
+    }
+
+    await _loadUserNarrationTracks();
+  }
+
   Future<void> _uploadAmbienceFile() async {
     if (_isUploadingAmbience) return;
 
@@ -569,6 +842,8 @@ class _NewSessionPageState extends State<NewSessionPage> {
     _backgroundMusicPreviewPlayer?.dispose();
     _ambienceStateSubscription?.cancel();
     _backgroundAmbiencePreviewPlayer?.dispose();
+    _narrationFileStateSubscription?.cancel();
+    _narrationFilePreviewPlayer?.dispose();
     _voiceStateSubscription?.cancel();
     _voicePreviewPlayer?.dispose();
     _binauralPreviewStateSubscription?.cancel();
@@ -977,8 +1252,11 @@ class _NewSessionPageState extends State<NewSessionPage> {
     final hasBinaural = _selectedActivity != null;
     final hasMusic = _selectedBackgroundMusic != null && _selectedBackgroundMusic != 'None';
     final hasAmbience = _selectedBackgroundAmbience != null && _selectedBackgroundAmbience != 'None';
-    final hasNarration = _selectedVoice?.previewUrl != null &&
-        _selectedVoice!.previewUrl!.isNotEmpty;
+    final hasNarrationFile = _selectedUserNarration != null &&
+        _selectedUserNarration != 'None';
+    final hasNarration = hasNarrationFile ||
+        (_selectedVoice?.previewUrl != null &&
+            _selectedVoice!.previewUrl!.isNotEmpty);
 
     if (!hasBinaural && !hasMusic && !hasAmbience && !hasNarration) {
       if (mounted) {
@@ -999,6 +1277,7 @@ class _NewSessionPageState extends State<NewSessionPage> {
     // Stop any individually-playing previews first.
     await _stopBackgroundMusicPreview();
     await _stopBackgroundAmbiencePreview();
+    await _stopNarrationFilePreview();
     await _stopVoicePreview();
     await _stopBinauralPreview();
 
@@ -1114,29 +1393,59 @@ class _NewSessionPageState extends State<NewSessionPage> {
         }
       }
 
-      // Layer 4: Narration voice sample (not looped – plays once)
+      // Layer 4: Narration — user-uploaded file takes priority over voice sample
       if (hasNarration) {
-        try {
-          _voicePreviewPlayer = AudioPlayer();
-          _voiceStateSubscription =
-              _voicePreviewPlayer!.playerStateStream.listen((state) {
-            if (state.processingState == ProcessingState.completed) {
-              unawaited(_stopVoicePreview());
-              return;
-            }
-            if (mounted) {
-              setState(() {
-                _isPlayingVoicePreview = state.playing;
-                if (state.playing) _isLoadingVoicePreview = false;
+        if (hasNarrationFile) {
+          // Play the user-uploaded narration file (loops).
+          try {
+            final trackId = UserNarrationLibraryService.trackIdFromKey(
+                _selectedUserNarration!);
+            final filePath = trackId != null
+                ? await UserNarrationLibraryService.resolveFilePath(trackId)
+                : null;
+
+            if (filePath != null) {
+              _narrationFilePreviewPlayer = AudioPlayer();
+              _narrationFileStateSubscription =
+                  _narrationFilePreviewPlayer!.playerStateStream.listen(
+                      (state) {
+                if (mounted) {
+                  setState(() => _isPlayingNarrationFile = state.playing);
+                }
               });
+              await _narrationFilePreviewPlayer!.setFilePath(filePath);
+              await _narrationFilePreviewPlayer!.setLoopMode(LoopMode.one);
+              await _narrationFilePreviewPlayer!.setVolume(_narrationVolume);
+              unawaited(_narrationFilePreviewPlayer!.play());
+              if (mounted) setState(() => _isPlayingNarrationFile = true);
             }
-          });
-          await _voicePreviewPlayer!.setUrl(_selectedVoice!.previewUrl!);
-          await _voicePreviewPlayer!.setVolume(_narrationVolume);
-          unawaited(_voicePreviewPlayer!.play());
-          if (mounted) setState(() => _isPlayingVoicePreview = true);
-        } catch (e) {
-          debugPrint('Full preview – narration error: $e');
+          } catch (e) {
+            debugPrint('Full preview – narration file error: $e');
+          }
+        } else {
+          // Play the ElevenLabs voice sample (plays once).
+          try {
+            _voicePreviewPlayer = AudioPlayer();
+            _voiceStateSubscription =
+                _voicePreviewPlayer!.playerStateStream.listen((state) {
+              if (state.processingState == ProcessingState.completed) {
+                unawaited(_stopVoicePreview());
+                return;
+              }
+              if (mounted) {
+                setState(() {
+                  _isPlayingVoicePreview = state.playing;
+                  if (state.playing) _isLoadingVoicePreview = false;
+                });
+              }
+            });
+            await _voicePreviewPlayer!.setUrl(_selectedVoice!.previewUrl!);
+            await _voicePreviewPlayer!.setVolume(_narrationVolume);
+            unawaited(_voicePreviewPlayer!.play());
+            if (mounted) setState(() => _isPlayingVoicePreview = true);
+          } catch (e) {
+            debugPrint('Full preview – narration error: $e');
+          }
         }
       }
 
@@ -1160,6 +1469,7 @@ class _NewSessionPageState extends State<NewSessionPage> {
     await _stopBinauralPreview();
     await _stopBackgroundMusicPreview();
     await _stopBackgroundAmbiencePreview();
+    await _stopNarrationFilePreview();
     await _stopVoicePreview();
     if (mounted) setState(() => _isPreviewingAll = false);
   }
@@ -1235,6 +1545,12 @@ class _NewSessionPageState extends State<NewSessionPage> {
         backgroundAmbience: _ambienceEnabled ? (_selectedBackgroundAmbience ?? 'None') : 'None',
         narrationText: _narrationTextController.text.trim(),
         narrationVoiceId: _selectedVoice?.voiceId,
+        narrationAudioKey: _narrationEnabled
+            ? (_selectedUserNarration != null &&
+                    _selectedUserNarration != 'None'
+                ? _selectedUserNarration
+                : null)
+            : null,
         createdAt: DateTime.now(),
         binauralBaseFrequencyHz: _goalEnabled ? _baseFrequencyHz : null,
         binauralBeatFrequencyHz: _goalEnabled ? _beatFrequencyHz : null,
@@ -2072,61 +2388,248 @@ class _NewSessionPageState extends State<NewSessionPage> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    _buildFieldLabel('VOICE'),
-                    const SizedBox(height: 8),
-                    Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Expanded(child: _buildVoiceDropdown()),
-                        const SizedBox(width: 8),
-                        _buildPreviewButton(
-                          enabled: _selectedVoice?.previewUrl != null &&
-                              _selectedVoice!.previewUrl!.isNotEmpty,
-                          isPlaying: _isPlayingVoicePreview,
-                          isLoading: _isLoadingVoicePreview,
-                          onPlay: _playVoicePreview,
-                          onStop: _stopVoicePreview,
-                        ),
-                      ],
-                    ),
-                    if (_selectedVoice?.previewUrl != null &&
-                        _selectedVoice!.previewUrl!.isNotEmpty) ...[
-                      const SizedBox(height: 8),
-                      Text(
-                        _isLoadingVoicePreview
-                            ? 'Loading voice sample...'
-                            : _isPlayingVoicePreview
-                            ? 'Playing voice sample — tap stop when done'
-                            : 'Tap play to preview this voice',
-                        style: TextStyle(
-                          color: (_isPlayingVoicePreview || _isLoadingVoicePreview)
-                              ? const Color(0xFF7BAF8E)
-                              : _textSecondary,
-                          fontSize: 12,
+                    // Dim the AI voice+script section when a custom file is active
+                    AnimatedOpacity(
+                      opacity: (_selectedUserNarration != null &&
+                              _selectedUserNarration != 'None')
+                          ? 0.4
+                          : 1.0,
+                      duration: const Duration(milliseconds: 200),
+                      child: IgnorePointer(
+                        ignoring: _selectedUserNarration != null &&
+                            _selectedUserNarration != 'None',
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            _buildFieldLabel('VOICE'),
+                            const SizedBox(height: 8),
+                            Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Expanded(child: _buildVoiceDropdown()),
+                                const SizedBox(width: 8),
+                                _buildPreviewButton(
+                                  enabled: _selectedVoice?.previewUrl != null &&
+                                      _selectedVoice!.previewUrl!.isNotEmpty,
+                                  isPlaying: _isPlayingVoicePreview,
+                                  isLoading: _isLoadingVoicePreview,
+                                  onPlay: _playVoicePreview,
+                                  onStop: _stopVoicePreview,
+                                ),
+                              ],
+                            ),
+                            if (_selectedVoice?.previewUrl != null &&
+                                _selectedVoice!.previewUrl!.isNotEmpty) ...[
+                              const SizedBox(height: 8),
+                              Text(
+                                _isLoadingVoicePreview
+                                    ? 'Loading voice sample...'
+                                    : _isPlayingVoicePreview
+                                        ? 'Playing voice sample — tap stop when done'
+                                        : 'Tap play to preview this voice',
+                                style: TextStyle(
+                                  color: (_isPlayingVoicePreview ||
+                                          _isLoadingVoicePreview)
+                                      ? const Color(0xFF7BAF8E)
+                                      : _textSecondary,
+                                  fontSize: 12,
+                                ),
+                              ),
+                            ],
+                            const SizedBox(height: 20),
+                            _buildFieldLabel('SCRIPT'),
+                            const SizedBox(height: 4),
+                            Text(
+                              'These words will be narrated by AI during your session.',
+                              style:
+                                  TextStyle(color: _textSecondary, fontSize: 12),
+                            ),
+                            const SizedBox(height: 10),
+                            SizedBox(
+                              width: double.infinity,
+                              child: OutlinedButton.icon(
+                                onPressed: _isGeneratingScript
+                                    ? null
+                                    : _generateScriptUsingAI,
+                                icon: _isGeneratingScript
+                                    ? const SizedBox(
+                                        width: 16,
+                                        height: 16,
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                          color: _primary,
+                                        ),
+                                      )
+                                    : const Icon(Icons.auto_awesome, size: 18),
+                                label: Text(
+                                  _isGeneratingScript
+                                      ? 'Generating Script...'
+                                      : 'Generate Script using AI',
+                                ),
+                                style: OutlinedButton.styleFrom(
+                                  foregroundColor: _primary,
+                                  side: BorderSide(
+                                      color: _primary.withOpacity(0.45)),
+                                  padding:
+                                      const EdgeInsets.symmetric(vertical: 12),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(10),
+                                  ),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(height: 10),
+                            TextFormField(
+                              controller: _narrationTextController,
+                              style: const TextStyle(color: _textPrimary),
+                              maxLines: 5,
+                              decoration: _fieldDecoration(
+                                hint:
+                                    'e.g. Breathe in slowly... hold... and release...',
+                              ),
+                            ),
+                          ],
                         ),
                       ),
-                    ],
-                    const SizedBox(height: 12),
+                    ),
+
+                    const SizedBox(height: 20),
                     _buildVolumeRow(
                       value: _narrationVolume,
                       onChanged: (v) {
                         setState(() => _narrationVolume = v);
                         _voicePreviewPlayer?.setVolume(v);
+                        _narrationFilePreviewPlayer?.setVolume(v);
                       },
                     ),
-                    const SizedBox(height: 20),
-                    _buildFieldLabel('SCRIPT'),
+
+                    // ── Custom narration audio section ──
+                    const SizedBox(height: 16),
+                    Row(
+                      children: [
+                        Expanded(child: Divider(color: _border)),
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 10),
+                          child: Text(
+                            'OR USE CUSTOM AUDIO',
+                            style: TextStyle(
+                              color: _textSecondary,
+                              fontSize: 11,
+                              fontWeight: FontWeight.w600,
+                              letterSpacing: 0.3,
+                            ),
+                          ),
+                        ),
+                        Expanded(child: Divider(color: _border)),
+                      ],
+                    ),
                     const SizedBox(height: 4),
                     Text(
-                      'These words will be narrated by AI during your session.',
+                      'Upload your own pre-recorded narration to skip AI voice generation.',
                       style: TextStyle(color: _textSecondary, fontSize: 12),
                     ),
                     const SizedBox(height: 10),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: DropdownButtonFormField<String>(
+                            value: _selectedUserNarration,
+                            isExpanded: true,
+                            decoration: _fieldDecoration(hint: 'None'),
+                            dropdownColor: _surface,
+                            style: const TextStyle(color: _textPrimary),
+                            icon: const Icon(Icons.arrow_drop_down,
+                                color: _textSecondary),
+                            items: [
+                              const DropdownMenuItem<String>(
+                                value: 'None',
+                                child: Text('None'),
+                              ),
+                              if (_userNarrationTracks.isNotEmpty) ...[
+                                const DropdownMenuItem<String>(
+                                  enabled: false,
+                                  value: '__narration_divider__',
+                                  child: Divider(height: 1),
+                                ),
+                                ..._userNarrationTracks.map((track) {
+                                  return DropdownMenuItem<String>(
+                                    value: UserNarrationLibraryService
+                                        .sessionKey(track.id),
+                                    child: Text(
+                                      track.displayName,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  );
+                                }),
+                              ],
+                            ],
+                            onChanged: (value) async {
+                              if (value == '__narration_divider__') return;
+                              if (_isPlayingNarrationFile) {
+                                await _stopNarrationFilePreview();
+                              }
+                              setState(() => _selectedUserNarration = value);
+                            },
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        _buildPreviewButton(
+                          enabled: _selectedUserNarration != null &&
+                              _selectedUserNarration != 'None' &&
+                              _selectedUserNarration != '__narration_divider__',
+                          isPlaying: _isPlayingNarrationFile,
+                          onPlay: _playNarrationFilePreview,
+                          onStop: _stopNarrationFilePreview,
+                        ),
+                      ],
+                    ),
+                    if (_selectedUserNarration != null &&
+                        _selectedUserNarration != 'None') ...[
+                      const SizedBox(height: 8),
+                      Text(
+                        _isPlayingNarrationFile
+                            ? 'Playing preview — tap stop when done'
+                            : 'Tap play to preview this file',
+                        style: TextStyle(
+                          color: _isPlayingNarrationFile
+                              ? const Color(0xFF7BAF8E)
+                              : _textSecondary,
+                          fontSize: 12,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 10, vertical: 8),
+                        decoration: BoxDecoration(
+                          color: _secondary.withOpacity(0.08),
+                          borderRadius: BorderRadius.circular(8),
+                          border:
+                              Border.all(color: _secondary.withOpacity(0.25)),
+                        ),
+                        child: Row(
+                          children: [
+                            Icon(Icons.info_outline,
+                                size: 14, color: _secondary),
+                            const SizedBox(width: 8),
+                            const Expanded(
+                              child: Text(
+                                'Custom audio will be used for narration — voice & script above will be ignored.',
+                                style: TextStyle(
+                                    color: _textSecondary, fontSize: 12),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                    const SizedBox(height: 12),
                     SizedBox(
                       width: double.infinity,
                       child: OutlinedButton.icon(
-                        onPressed: _isGeneratingScript ? null : _generateScriptUsingAI,
-                        icon: _isGeneratingScript
+                        onPressed:
+                            _isUploadingNarration ? null : _uploadNarrationFile,
+                        icon: _isUploadingNarration
                             ? const SizedBox(
                                 width: 16,
                                 height: 16,
@@ -2135,29 +2638,28 @@ class _NewSessionPageState extends State<NewSessionPage> {
                                   color: _primary,
                                 ),
                               )
-                            : const Icon(Icons.auto_awesome, size: 18),
+                            : const Icon(Icons.upload_file_outlined, size: 18),
                         label: Text(
-                          _isGeneratingScript
-                              ? 'Generating Script...'
-                              : 'Generate Script using AI',
+                          _isUploadingNarration
+                              ? 'Uploading…'
+                              : 'Upload Narration File',
                         ),
                         style: OutlinedButton.styleFrom(
                           foregroundColor: _primary,
                           side: BorderSide(color: _primary.withOpacity(0.45)),
-                          padding: const EdgeInsets.symmetric(vertical: 12),
+                          padding: const EdgeInsets.symmetric(vertical: 10),
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(10),
                           ),
                         ),
                       ),
                     ),
-                    const SizedBox(height: 10),
-                    TextFormField(
-                      controller: _narrationTextController,
-                      style: const TextStyle(color: _textPrimary),
-                      maxLines: 5,
-                      decoration: _fieldDecoration(
-                        hint: 'e.g. Breathe in slowly... hold... and release...',
+                    const SizedBox(height: 4),
+                    Text(
+                      'MP3, M4A, WAV, AAC, FLAC, OGG · max 50 MB',
+                      style: TextStyle(
+                        color: _textSecondary,
+                        fontSize: 11,
                       ),
                     ),
                   ],
@@ -2575,6 +3077,53 @@ class _NewSessionPageState extends State<NewSessionPage> {
         fontSize: 13,
         fontWeight: FontWeight.w600,
         letterSpacing: 0.3,
+      ),
+    );
+  }
+
+  // ignore: unused_element
+  Widget _buildUserNarrationTrackTile(UserMusicTrack track) {
+    final trackKey = UserNarrationLibraryService.sessionKey(track.id);
+    final isSelected = _selectedUserNarration == trackKey;
+    return Container(
+      margin: const EdgeInsets.only(bottom: 6),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: isSelected ? _primary.withOpacity(0.07) : _background,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(
+          color: isSelected ? _primary.withOpacity(0.4) : _border,
+        ),
+      ),
+      child: Row(
+        children: [
+          Icon(
+            Icons.audio_file_outlined,
+            size: 16,
+            color: isSelected ? _primary : _textSecondary,
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              track.displayName,
+              style: TextStyle(
+                color: isSelected ? _primary : _textPrimary,
+                fontSize: 13,
+                fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
+              ),
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+          const SizedBox(width: 8),
+          GestureDetector(
+            onTap: () => _deleteUserNarrationTrack(track),
+            child: Icon(
+              Icons.delete_outline,
+              size: 18,
+              color: Colors.red.shade400,
+            ),
+          ),
+        ],
       ),
     );
   }

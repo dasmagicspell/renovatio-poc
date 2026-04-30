@@ -7,6 +7,10 @@ class Session {
   final String backgroundAmbience;
   final String narrationText;
   final String? narrationVoiceId;
+
+  /// When set to a `user_narration:<uuid>` key, playback uses the uploaded
+  /// audio file directly instead of generating TTS via ElevenLabs.
+  final String? narrationAudioKey;
   final DateTime createdAt;
 
   /// When set with [binauralBeatFrequencyHz], playback uses a per-session
@@ -39,6 +43,7 @@ class Session {
     required this.backgroundAmbience,
     required this.narrationText,
     this.narrationVoiceId,
+    this.narrationAudioKey,
     required this.createdAt,
     this.binauralBaseFrequencyHz,
     this.binauralBeatFrequencyHz,
@@ -67,6 +72,7 @@ class Session {
       'backgroundAmbience': backgroundAmbience,
       'narrationText': narrationText,
       'narrationVoiceId': narrationVoiceId,
+      'narrationAudioKey': narrationAudioKey,
       'createdAt': createdAt.toIso8601String(),
       'binauralBaseFrequencyHz': binauralBaseFrequencyHz,
       'binauralBeatFrequencyHz': binauralBeatFrequencyHz,
@@ -93,6 +99,7 @@ class Session {
       backgroundAmbience: json['backgroundAmbience'] as String? ?? 'None',
       narrationText: json['narrationText'] as String? ?? '',
       narrationVoiceId: json['narrationVoiceId'] as String?,
+      narrationAudioKey: json['narrationAudioKey'] as String?,
       createdAt: DateTime.parse(json['createdAt'] as String),
       binauralBaseFrequencyHz: (json['binauralBaseFrequencyHz'] as num?)?.toDouble(),
       binauralBeatFrequencyHz: (json['binauralBeatFrequencyHz'] as num?)?.toDouble(),

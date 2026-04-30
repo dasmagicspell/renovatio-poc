@@ -18,6 +18,7 @@ import 'services/config_service.dart';
 import 'services/binaural_audio_generator.dart';
 import 'services/user_music_library_service.dart';
 import 'services/user_ambience_library_service.dart';
+import 'services/user_narration_library_service.dart';
 import 'audio_processor.dart';
 
 class SessionDetailsPage extends StatefulWidget {
@@ -826,6 +827,14 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
   }
   
   Future<void> _loadNarration() async {
+    // User-uploaded narration audio — load from file system directly.
+    final narrationKey = widget.session.narrationAudioKey;
+    if (narrationKey != null &&
+        UserNarrationLibraryService.isUserTrackKey(narrationKey)) {
+      await _loadUserNarrationAudio(narrationKey);
+      return;
+    }
+
     if (widget.session.narrationText.trim().isEmpty) {
       print('No narration text provided, skipping narration loading');
       return;
@@ -885,6 +894,63 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
         _isGeneratingNarration = false;
       });
       print('Error loading narration: $e');
+    }
+  }
+
+  /// Loads a user-uploaded narration audio file identified by a
+  /// `user_narration:<uuid>` key, bypassing ElevenLabs entirely.
+  Future<void> _loadUserNarrationAudio(String narrationKey) async {
+    final trackId =
+        UserNarrationLibraryService.trackIdFromKey(narrationKey);
+    if (trackId == null) {
+      setState(() => _isLoadingNarration = false);
+      return;
+    }
+
+    setState(() => _isLoadingNarration = true);
+
+    try {
+      final track =
+          await UserNarrationLibraryService.getTrackById(trackId);
+      final filePath =
+          await UserNarrationLibraryService.resolveFilePath(trackId);
+
+      if (filePath == null) {
+        setState(() => _isLoadingNarration = false);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text(
+                'Uploaded narration file is missing. It may have been deleted from your library.',
+              ),
+              backgroundColor: Colors.orange,
+              duration: Duration(seconds: 4),
+            ),
+          );
+        }
+        return;
+      }
+
+      final player = AudioPlayer();
+      await player.setFilePath(filePath);
+      await player.setLoopMode(LoopMode.all);
+      await player.setVolume(_narrationVolume);
+      await player.setSpeed(_narrationSpeed);
+
+      player.playerStateStream.listen((state) {
+        if (mounted) setState(() => _isPlayingNarration = state.playing);
+      });
+
+      setState(() {
+        _narrationPlayer = player;
+        _narrationPath = filePath;
+        _isLoadingNarration = false;
+      });
+
+      print('User narration loaded: ${track?.displayName}');
+    } catch (e) {
+      setState(() => _isLoadingNarration = false);
+      print('Error loading user narration: $e');
     }
   }
 
