@@ -4,15 +4,18 @@ import 'dart:math';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:uuid/uuid.dart';
 import 'package:just_audio/just_audio.dart';
 import 'models/session.dart';
+import 'models/user_music_track.dart';
 import 'services/session_storage_service.dart';
 import 'services/elevenlabs_service.dart';
 import 'services/config_service.dart';
 import 'services/binaural_audio_generator.dart';
 import 'services/binaural_goal_frequencies.dart';
+import 'services/user_music_library_service.dart';
 import 'chatgpt_service.dart';
 import 'session_details_page.dart';
 
@@ -60,6 +63,10 @@ class _NewSessionPageState extends State<NewSessionPage> {
   ElevenLabsVoice? _selectedVoice;
   bool _isLoadingVoices = false;
   String? _voicesError;
+
+  // User-uploaded music library
+  List<UserMusicTrack> _userMusicTracks = [];
+  bool _isUploadingMusic = false;
 
   // Per-layer enabled toggles
   bool _goalEnabled = true;
@@ -128,6 +135,7 @@ class _NewSessionPageState extends State<NewSessionPage> {
   void initState() {
     super.initState();
     _loadVoices();
+    _loadUserMusicTracks();
   }
 
   Future<void> _loadVoices() async {
@@ -162,6 +170,202 @@ class _NewSessionPageState extends State<NewSessionPage> {
         });
       }
     }
+  }
+
+  Future<void> _loadUserMusicTracks() async {
+    final tracks = await UserMusicLibraryService.getAllTracks();
+    if (mounted) setState(() => _userMusicTracks = tracks);
+  }
+
+  /// Opens a file picker, copies the chosen audio file into app storage,
+  /// and registers it in the user music library.
+  static const int _maxUploadBytes = 50 * 1024 * 1024; // 50 MB
+
+  Future<void> _uploadMusicFile() async {
+    if (_isUploadingMusic) return;
+
+    final result = await FilePicker.platform.pickFiles(
+      type: FileType.custom,
+      allowedExtensions: ['mp3', 'm4a', 'wav', 'aac', 'flac', 'ogg'],
+      allowMultiple: false,
+    );
+    if (result == null || result.files.isEmpty) return;
+
+    final pickedFile = result.files.first;
+    final sourcePath = pickedFile.path;
+
+    if (sourcePath == null) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Could not access the selected file.'),
+            backgroundColor: Colors.orange,
+          ),
+        );
+      }
+      return;
+    }
+
+    // Enforce the 50 MB cap before copying anything.
+    final fileSize = pickedFile.size;
+    if (fileSize > _maxUploadBytes) {
+      if (mounted) {
+        final sizeMB = (fileSize / (1024 * 1024)).toStringAsFixed(1);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'File is too large (${sizeMB} MB). '
+              'Please use a file under 50 MB.',
+            ),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 4),
+          ),
+        );
+      }
+      return;
+    }
+
+    setState(() => _isUploadingMusic = true);
+
+    try {
+      // Default display name = filename without extension.
+      final rawName = pickedFile.name;
+      final dotIndex = rawName.lastIndexOf('.');
+      final baseName = dotIndex != -1 ? rawName.substring(0, dotIndex) : rawName;
+
+      // Append timestamp if a track with the same name already exists.
+      final isDuplicate = _userMusicTracks
+          .any((t) => t.displayName.toLowerCase() == baseName.toLowerCase());
+      final displayName = isDuplicate
+          ? '$baseName (${DateTime.now().millisecondsSinceEpoch})'
+          : baseName;
+
+      final track = await UserMusicLibraryService.addTrack(
+        sourceFilePath: sourcePath,
+        displayName: displayName,
+      );
+
+      await _loadUserMusicTracks();
+
+      // Auto-select the newly uploaded track in the dropdown.
+      if (mounted) {
+        if (_isPlayingBackgroundMusic) await _stopBackgroundMusicPreview();
+        setState(() => _selectedBackgroundMusic = track.sessionKey);
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('"${track.displayName}" added to your library.'),
+            backgroundColor: Colors.green,
+            duration: const Duration(seconds: 2),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error uploading music: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isUploadingMusic = false);
+    }
+  }
+
+  /// Deletes [track] from the library after warning the user if any saved
+  /// sessions reference it.
+  Future<void> _deleteUserTrack(UserMusicTrack track) async {
+    final allSessions = await SessionStorageService.getAllSessions();
+    final usingCount = UserMusicLibraryService.countSessionsUsing(
+      track.id,
+      allSessions.map((s) => s.backgroundMusic).toList(),
+    );
+
+    if (!mounted) return;
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: _surface,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Text(
+          'Remove Track',
+          style: TextStyle(color: _textPrimary, fontWeight: FontWeight.bold),
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Remove "${track.displayName}" from your library?',
+              style: const TextStyle(color: _textPrimary),
+            ),
+            if (usingCount > 0) ...[
+              const SizedBox(height: 12),
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: Colors.orange.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.orange.withOpacity(0.4)),
+                ),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Icon(
+                      Icons.warning_amber_rounded,
+                      color: Colors.orange,
+                      size: 16,
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        '$usingCount soundscape${usingCount == 1 ? '' : 's'} '
+                        '${usingCount == 1 ? 'uses' : 'use'} this track and '
+                        'will lose its background music.',
+                        style: const TextStyle(
+                          color: Colors.orange,
+                          fontSize: 13,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            style: TextButton.styleFrom(foregroundColor: Colors.red),
+            child: const Text('Remove'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true || !mounted) return;
+
+    // Stop preview if the deleted track is currently playing.
+    if (_selectedBackgroundMusic == track.sessionKey && _isPlayingBackgroundMusic) {
+      await _stopBackgroundMusicPreview();
+    }
+
+    await UserMusicLibraryService.deleteTrack(track.id);
+
+    // Clear selection if this was the selected track.
+    if (_selectedBackgroundMusic == track.sessionKey) {
+      setState(() => _selectedBackgroundMusic = null);
+    }
+
+    await _loadUserMusicTracks();
   }
 
   @override
@@ -216,59 +420,71 @@ class _NewSessionPageState extends State<NewSessionPage> {
 
   
   Future<void> _playBackgroundMusicPreview() async {
-    if (_selectedBackgroundMusic == null || 
-        _selectedBackgroundMusic == 'None' || 
+    if (_selectedBackgroundMusic == null ||
+        _selectedBackgroundMusic == 'None' ||
         _isPlayingBackgroundMusic) {
       return;
     }
     if (_isPreviewingAll) await _stopFullPreview();
-    
+
     try {
       await _stopBackgroundMusicPreview();
       _backgroundMusicPreviewPlayer = AudioPlayer();
-      
-      // Listen to player state changes
-      _playerStateSubscription = _backgroundMusicPreviewPlayer!.playerStateStream.listen(
+
+      _playerStateSubscription =
+          _backgroundMusicPreviewPlayer!.playerStateStream.listen(
         (state) {
-          if (mounted) {
-            setState(() {
-              _isPlayingBackgroundMusic = state.playing;
-            });
-          }
+          if (mounted) setState(() => _isPlayingBackgroundMusic = state.playing);
         },
         onError: (Object error, StackTrace stackTrace) {
           debugPrint('Background music player stream error: $error');
         },
       );
 
-      final selectedMusic = _selectedBackgroundMusic!;
-      final assetPath = await _resolvePreviewAssetPath(
-        folder: 'assets/audio/background-music',
-        selectedName: selectedMusic,
-      );
-      if (assetPath == null) {
-        debugPrint(
-          'Background music preview failed: selected="$selectedMusic", folder="assets/audio/background-music"',
-        );
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Preview file not found for "$selectedMusic".'),
-              backgroundColor: Colors.orange,
-            ),
-          );
+      if (UserMusicLibraryService.isUserTrackKey(_selectedBackgroundMusic!)) {
+        // User-uploaded track — load from file system.
+        final trackId =
+            UserMusicLibraryService.trackIdFromKey(_selectedBackgroundMusic!);
+        final filePath = trackId != null
+            ? await UserMusicLibraryService.resolveFilePath(trackId)
+            : null;
+
+        if (filePath == null) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('Music file not found in your library.'),
+                backgroundColor: Colors.orange,
+              ),
+            );
+          }
+          return;
         }
-        return;
+        await _backgroundMusicPreviewPlayer!.setFilePath(filePath);
+      } else {
+        // Bundled asset.
+        final selectedMusic = _selectedBackgroundMusic!;
+        final assetPath = await _resolvePreviewAssetPath(
+          folder: 'assets/audio/background-music',
+          selectedName: selectedMusic,
+        );
+        if (assetPath == null) {
+          debugPrint('Background music preview not found for "$selectedMusic"');
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('Preview not found for "$selectedMusic".'),
+                backgroundColor: Colors.orange,
+              ),
+            );
+          }
+          return;
+        }
+        await _backgroundMusicPreviewPlayer!.setAsset(assetPath);
       }
-      
-      await _backgroundMusicPreviewPlayer!.setAsset(assetPath);
+
       await _backgroundMusicPreviewPlayer!.play();
-      
-      if (mounted) {
-        setState(() {
-          _isPlayingBackgroundMusic = true;
-        });
-      }
+      if (mounted) setState(() => _isPlayingBackgroundMusic = true);
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -597,17 +813,36 @@ class _NewSessionPageState extends State<NewSessionPage> {
       // Layer 2: Background music
       if (hasMusic) {
         try {
-          final assetPath = await _resolvePreviewAssetPath(
-            folder: 'assets/audio/background-music',
-            selectedName: _selectedBackgroundMusic!,
-          );
-          if (assetPath != null) {
+          String? resolvedPath;
+          bool isAsset = false;
+
+          if (UserMusicLibraryService.isUserTrackKey(_selectedBackgroundMusic!)) {
+            final trackId =
+                UserMusicLibraryService.trackIdFromKey(_selectedBackgroundMusic!);
+            if (trackId != null) {
+              resolvedPath =
+                  await UserMusicLibraryService.resolveFilePath(trackId);
+            }
+          } else {
+            resolvedPath = await _resolvePreviewAssetPath(
+              folder: 'assets/audio/background-music',
+              selectedName: _selectedBackgroundMusic!,
+            );
+            isAsset = resolvedPath != null;
+          }
+
+          if (resolvedPath != null) {
             _backgroundMusicPreviewPlayer = AudioPlayer();
             _playerStateSubscription =
                 _backgroundMusicPreviewPlayer!.playerStateStream.listen((state) {
-              if (mounted) setState(() => _isPlayingBackgroundMusic = state.playing);
+              if (mounted)
+                setState(() => _isPlayingBackgroundMusic = state.playing);
             });
-            await _backgroundMusicPreviewPlayer!.setAsset(assetPath);
+            if (isAsset) {
+              await _backgroundMusicPreviewPlayer!.setAsset(resolvedPath);
+            } else {
+              await _backgroundMusicPreviewPlayer!.setFilePath(resolvedPath);
+            }
             await _backgroundMusicPreviewPlayer!.setLoopMode(LoopMode.one);
             await _backgroundMusicPreviewPlayer!.setVolume(_musicVolume);
             unawaited(_backgroundMusicPreviewPlayer!.play());
@@ -1293,26 +1528,50 @@ class _NewSessionPageState extends State<NewSessionPage> {
                         Expanded(
                           child: DropdownButtonFormField<String>(
                             value: _selectedBackgroundMusic,
+                            isExpanded: true,
                             decoration: _fieldDecoration(hint: 'Select a track'),
                             dropdownColor: _surface,
                             style: const TextStyle(color: _textPrimary),
                             icon: const Icon(Icons.arrow_drop_down, color: _textSecondary),
-                            items: _backgroundMusicOptions.map((music) {
-                              return DropdownMenuItem<String>(
-                                value: music,
-                                child: Text(music),
-                              );
-                            }).toList(),
+                            items: [
+                              // Built-in bundled options
+                              ..._backgroundMusicOptions.map((music) {
+                                return DropdownMenuItem<String>(
+                                  value: music,
+                                  child: Text(music),
+                                );
+                              }),
+                              // User-uploaded tracks — plain Text, no Row/icon,
+                              // avoids all unbounded-constraint layout issues.
+                              if (_userMusicTracks.isNotEmpty) ...[
+                                const DropdownMenuItem<String>(
+                                  enabled: false,
+                                  value: '__divider__',
+                                  child: Divider(height: 1),
+                                ),
+                                ..._userMusicTracks.map((track) {
+                                  return DropdownMenuItem<String>(
+                                    value: track.sessionKey,
+                                    child: Text(
+                                      track.displayName,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  );
+                                }),
+                              ],
+                            ],
                             onChanged: (value) async {
+                              if (value == '__divider__') return;
                               if (_isPlayingBackgroundMusic) {
                                 await _stopBackgroundMusicPreview();
                               }
-                              setState(() {
-                                _selectedBackgroundMusic = value;
-                              });
+                              setState(() => _selectedBackgroundMusic = value);
                             },
                             validator: (value) {
-                              if (_musicEnabled && (value == null || value.isEmpty)) {
+                              if (_musicEnabled &&
+                                  (value == null ||
+                                      value.isEmpty ||
+                                      value == '__divider__')) {
                                 return 'Please select a track';
                               }
                               return null;
@@ -1322,7 +1581,8 @@ class _NewSessionPageState extends State<NewSessionPage> {
                         const SizedBox(width: 8),
                         _buildPreviewButton(
                           enabled: _selectedBackgroundMusic != null &&
-                              _selectedBackgroundMusic != 'None',
+                              _selectedBackgroundMusic != 'None' &&
+                              _selectedBackgroundMusic != '__divider__',
                           isPlaying: _isPlayingBackgroundMusic,
                           onPlay: _playBackgroundMusicPreview,
                           onStop: _stopBackgroundMusicPreview,
@@ -1337,7 +1597,9 @@ class _NewSessionPageState extends State<NewSessionPage> {
                             ? 'Playing preview — tap stop when done'
                             : 'Tap play to preview this track',
                         style: TextStyle(
-                          color: _isPlayingBackgroundMusic ? const Color(0xFF7BAF8E) : _textSecondary,
+                          color: _isPlayingBackgroundMusic
+                              ? const Color(0xFF7BAF8E)
+                              : _textSecondary,
                           fontSize: 12,
                         ),
                       ),
@@ -1350,6 +1612,55 @@ class _NewSessionPageState extends State<NewSessionPage> {
                         _backgroundMusicPreviewPlayer?.setVolume(v);
                       },
                     ),
+                    const SizedBox(height: 12),
+                    // Upload button
+                    SizedBox(
+                      width: double.infinity,
+                      child: OutlinedButton.icon(
+                        onPressed: _isUploadingMusic ? null : _uploadMusicFile,
+                        icon: _isUploadingMusic
+                            ? const SizedBox(
+                                width: 16,
+                                height: 16,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: _primary,
+                                ),
+                              )
+                            : const Icon(Icons.upload_file_outlined, size: 18),
+                        label: Text(
+                          _isUploadingMusic
+                              ? 'Uploading…'
+                              : 'Upload Music File',
+                        ),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: _primary,
+                          side: BorderSide(color: _primary.withOpacity(0.45)),
+                          padding: const EdgeInsets.symmetric(vertical: 10),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'MP3, M4A, WAV, AAC, FLAC, OGG · max 50 MB',
+                      style: TextStyle(
+                        color: _textSecondary,
+                        fontSize: 11,
+                      ),
+                    ),
+                    // User-uploaded tracks management list
+                    // TODO: move to a dedicated management page
+                    // if (_userMusicTracks.isNotEmpty) ...[
+                    //   const SizedBox(height: 12),
+                    //   _buildFieldLabel('YOUR UPLOADS'),
+                    //   const SizedBox(height: 8),
+                    //   ..._userMusicTracks.map(
+                    //     (track) => _buildUserTrackTile(track),
+                    //   ),
+                    // ],
                   ],
                 ),
               ),
@@ -1955,6 +2266,53 @@ class _NewSessionPageState extends State<NewSessionPage> {
         fontSize: 13,
         fontWeight: FontWeight.w600,
         letterSpacing: 0.3,
+      ),
+    );
+  }
+
+  // ignore: unused_element
+  Widget _buildUserTrackTile(UserMusicTrack track) {
+    final isSelected = _selectedBackgroundMusic == track.sessionKey;
+    return Container(
+      margin: const EdgeInsets.only(bottom: 6),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: isSelected ? _primary.withOpacity(0.07) : _background,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(
+          color: isSelected ? _primary.withOpacity(0.4) : _border,
+        ),
+      ),
+      child: Row(
+        children: [
+          Icon(
+            Icons.audio_file_outlined,
+            size: 16,
+            color: isSelected ? _primary : _textSecondary,
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              track.displayName,
+              style: TextStyle(
+                color: isSelected ? _primary : _textPrimary,
+                fontSize: 13,
+                fontWeight:
+                    isSelected ? FontWeight.w600 : FontWeight.normal,
+              ),
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+          const SizedBox(width: 8),
+          GestureDetector(
+            onTap: () => _deleteUserTrack(track),
+            child: Icon(
+              Icons.delete_outline,
+              size: 18,
+              color: Colors.red.shade400,
+            ),
+          ),
+        ],
       ),
     );
   }

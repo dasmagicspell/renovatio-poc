@@ -16,6 +16,7 @@ import 'services/openai_service.dart';
 import 'services/elevenlabs_service.dart';
 import 'services/config_service.dart';
 import 'services/binaural_audio_generator.dart';
+import 'services/user_music_library_service.dart';
 import 'audio_processor.dart';
 
 class SessionDetailsPage extends StatefulWidget {
@@ -52,6 +53,7 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
   double _speed = 1.0;
   late double _backgroundVolume;
   double _backgroundSpeed = 1.0;
+  String _backgroundMusicDisplayName = '';
   late double _ambienceVolume;
   double _ambienceSpeed = 1.0;
   late double _narrationVolume;
@@ -101,6 +103,10 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
     _backgroundVolume = widget.session.backgroundMusicVolume;
     _ambienceVolume = widget.session.ambienceVolume;
     _narrationVolume = widget.session.narrationVolume;
+    _backgroundMusicDisplayName =
+        UserMusicLibraryService.isUserTrackKey(widget.session.backgroundMusic)
+            ? 'Loading…'
+            : widget.session.backgroundMusic;
     // Initialize ElevenLabsService for TTS
     _initializeElevenLabsService();
     if (widget.session.goalEnabled) _loadAudio();
@@ -521,14 +527,16 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
   }
   
   Future<void> _loadBackgroundMusic() async {
-    // Skip if background music is "None"
-    if (widget.session.backgroundMusic == 'None') {
+    if (widget.session.backgroundMusic == 'None') return;
+
+    setState(() => _isLoadingBackground = true);
+
+    if (UserMusicLibraryService.isUserTrackKey(widget.session.backgroundMusic)) {
+      await _loadUserBackgroundMusic();
       return;
     }
-    
-    setState(() {
-      _isLoadingBackground = true;
-    });
+
+    // --- Bundled asset path ---
     
     try {
       // Build list of possible file paths to try
@@ -614,10 +622,66 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
       });
       
       print('Error loading background music: $e');
-      // Don't show error snackbar for background music as it's optional
     }
   }
-  
+
+  /// Loads a user-uploaded background music track identified by a `user:<uuid>` key.
+  Future<void> _loadUserBackgroundMusic() async {
+    final trackId = UserMusicLibraryService.trackIdFromKey(
+      widget.session.backgroundMusic,
+    );
+    if (trackId == null) {
+      setState(() => _isLoadingBackground = false);
+      return;
+    }
+
+    try {
+      final track = await UserMusicLibraryService.getTrackById(trackId);
+      final filePath = await UserMusicLibraryService.resolveFilePath(trackId);
+
+      if (filePath == null) {
+        setState(() {
+          _isLoadingBackground = false;
+          _backgroundMusicDisplayName = track?.displayName ?? 'Unknown Track';
+        });
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text(
+                'Uploaded music file is missing. It may have been deleted from your library.',
+              ),
+              backgroundColor: Colors.orange,
+              duration: Duration(seconds: 4),
+            ),
+          );
+        }
+        return;
+      }
+
+      final player = AudioPlayer();
+      await player.setFilePath(filePath);
+      await player.setLoopMode(LoopMode.one);
+      await player.setVolume(_backgroundVolume);
+      await player.setSpeed(_backgroundSpeed);
+
+      player.playerStateStream.listen((state) {
+        if (mounted) setState(() => _isPlayingBackground = state.playing);
+      });
+
+      setState(() {
+        _backgroundMusicPlayer = player;
+        _isLoadingBackground = false;
+        _backgroundMusicDisplayName = track?.displayName ?? 'Custom Track';
+        _backgroundMusicPath = filePath;
+      });
+
+      print('User background music loaded: ${track?.displayName}');
+    } catch (e) {
+      setState(() => _isLoadingBackground = false);
+      print('Error loading user background music: $e');
+    }
+  }
+
   /// Maps a user-facing ambience name to its bundled asset filename (without extension).
   static String? _ambienceAssetSlug(String? ambience) {
     switch (ambience) {
@@ -1878,12 +1942,29 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
                       ),
                     ),
                     const SizedBox(height: 4),
-                    Text(
-                      widget.session.backgroundMusic,
-                      style: TextStyle(
-                        color: const Color(0xFF7A7570),
-                        fontSize: 14,
-                      ),
+                    Row(
+                      children: [
+                        if (UserMusicLibraryService.isUserTrackKey(
+                          widget.session.backgroundMusic,
+                        )) ...[
+                          const Icon(
+                            Icons.upload_file_outlined,
+                            size: 13,
+                            color: Color(0xFF7A7570),
+                          ),
+                          const SizedBox(width: 4),
+                        ],
+                        Expanded(
+                          child: Text(
+                            _backgroundMusicDisplayName,
+                            style: const TextStyle(
+                              color: Color(0xFF7A7570),
+                              fontSize: 14,
+                            ),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      ],
                     ),
                   ],
                 ),
