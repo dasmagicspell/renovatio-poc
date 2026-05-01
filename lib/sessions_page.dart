@@ -1,4 +1,7 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
+import 'package:path_provider/path_provider.dart';
 import 'new_session_page.dart';
 import 'session_details_page.dart';
 import 'models/session.dart';
@@ -75,6 +78,78 @@ class _SessionsPageState extends State<SessionsPage> {
         builder: (context) => SessionDetailsPage(session: session),
       ),
     );
+  }
+
+  Future<bool> _confirmAndDeleteSession(Session session) async {
+    final doDelete = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: _surface,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+        title: const Text(
+          'Delete Soundscape',
+          style: TextStyle(color: _textPrimary, fontWeight: FontWeight.bold),
+        ),
+        content: Text(
+          'Are you sure you want to delete "${session.name}"? This cannot be undone.',
+          style: const TextStyle(color: _textSecondary),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Cancel', style: TextStyle(color: _textSecondary)),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            style: TextButton.styleFrom(foregroundColor: Colors.red),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+
+    if (doDelete != true) return false;
+
+    try {
+      final appDir = await getApplicationDocumentsDirectory();
+
+      // Delete the per-session binaural audio clip.
+      if (session.binauralClipRelativePath != null) {
+        final binauralFile =
+            File('${appDir.path}/${session.binauralClipRelativePath}');
+        if (await binauralFile.exists()) await binauralFile.delete();
+      }
+
+      // Delete TTS narration cache directories for this session.
+      // Directories are named: generated_audio/narration_<sessionId>_<hash>[_<voiceId>]
+      final generatedAudioDir =
+          Directory('${appDir.path}/generated_audio');
+      if (await generatedAudioDir.exists()) {
+        await for (final entity in generatedAudioDir.list()) {
+          if (entity is Directory) {
+            final dirName = entity.path.split('/').last;
+            if (dirName.startsWith('narration_${session.id}_')) {
+              await entity.delete(recursive: true);
+            }
+          }
+        }
+      }
+
+      // Remove the session record from storage.
+      await SessionStorageService.deleteSession(session.id);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error deleting soundscape: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+      return false;
+    }
+
+    return true;
   }
 
   @override
@@ -224,8 +299,47 @@ class _SessionsPageState extends State<SessionsPage> {
   }
 
   Widget _buildSessionCard(Session session) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 12),
+    return Dismissible(
+      key: ValueKey(session.id),
+      direction: DismissDirection.endToStart,
+      secondaryBackground: Container(
+        margin: const EdgeInsets.only(bottom: 12),
+        decoration: BoxDecoration(
+          color: Colors.red.shade600,
+          borderRadius: BorderRadius.circular(14),
+        ),
+        alignment: Alignment.centerRight,
+        padding: const EdgeInsets.only(right: 24),
+        child: const Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.delete_outline, color: Colors.white, size: 26),
+            SizedBox(height: 4),
+            Text(
+              'Delete',
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ],
+        ),
+      ),
+      background: const SizedBox.shrink(),
+      confirmDismiss: (_) => _confirmAndDeleteSession(session),
+      onDismissed: (_) {
+        setState(() => _sessions.removeWhere((s) => s.id == session.id));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('"${session.name}" deleted'),
+            backgroundColor: _textSecondary,
+            duration: const Duration(seconds: 2),
+          ),
+        );
+      },
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 12),
       decoration: BoxDecoration(
         color: _surface,
         borderRadius: BorderRadius.circular(14),
@@ -327,6 +441,8 @@ class _SessionsPageState extends State<SessionsPage> {
           ),
         ),
       ),
+    ),
     );
   }
 }
+
