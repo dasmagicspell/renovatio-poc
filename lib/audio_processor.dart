@@ -216,12 +216,16 @@ class AudioProcessor {
       throw Exception('Input files and settings arrays must have the same length');
     }
     
-    List<String> tempFiles = [];
+    // preparedFiles  — paths passed to FFmpeg (originals + temp copies)
+    // createdTempFiles — only the files we created; these are safe to delete after export
+    List<String> preparedFiles = [];
+    List<String> createdTempFiles = [];
     
     try {
-      // Copy files to temp if they're assets, otherwise use as-is
-      tempFiles = await _prepareFilesForExport(inputFiles);
-      
+      final result = await _prepareFilesForExport(inputFiles);
+      preparedFiles = result.prepared;
+      createdTempFiles = result.created;
+
       // Output goes to app's documents directory (sandboxed, not user-browsable by default):
       // - iOS: /var/mobile/Containers/Data/Application/{UUID}/Documents/
       // - Android: /data/data/{package}/app_flutter/ or similar app-specific path
@@ -231,7 +235,7 @@ class AudioProcessor {
       
       // Build FFmpeg command for merging with duration control
       String command = _buildExportFFmpegCommand(
-        inputFiles: tempFiles,
+        inputFiles: preparedFiles,
         volumes: volumes,
         speeds: speeds,
         pitches: pitches,
@@ -242,9 +246,9 @@ class AudioProcessor {
       print('FFmpeg export command: $command');
       
       // Execute FFmpeg command
-      final result = await FFmpegExecutor.execute(command);
+      final ffmpegResult = await FFmpegExecutor.execute(command);
 
-      if (result.isSuccess) {
+      if (ffmpegResult.isSuccess) {
         // Verify file was created
         final file = File(outputPath);
         if (await file.exists()) {
@@ -256,44 +260,54 @@ class AudioProcessor {
           return null;
         }
       } else {
-        print('❌ FFmpeg export error: ${result.output}');
+        print('❌ FFmpeg export error: ${ffmpegResult.output}');
         return null;
       }
     } catch (e) {
       print('❌ Error exporting audio: $e');
       return null;
     } finally {
-      // Clean up temp files (only if we created them)
-      await _cleanupTempFiles(tempFiles);
+      // Only delete files that were created by this export (temp copies of assets).
+      // Original persistent files (e.g. the binaural clip in Documents) are never touched.
+      await _cleanupTempFiles(createdTempFiles);
     }
   }
-  
-  /// Prepare files for export - copy assets to temp, use regular files as-is
-  static Future<List<String>> _prepareFilesForExport(List<String> filePaths) async {
-    List<String> preparedFiles = [];
+
+  /// Prepares files for export.
+  ///
+  /// Returns a record with:
+  /// - [prepared]: ordered list of absolute paths to pass to FFmpeg (originals or temp copies)
+  /// - [created]: only the temp files created by this call — safe to delete after FFmpeg finishes
+  static Future<({List<String> prepared, List<String> created})>
+      _prepareFilesForExport(List<String> filePaths) async {
+    final List<String> preparedFiles = [];
+    final List<String> createdTempFiles = [];
     final tempDir = await getTemporaryDirectory();
     
     for (int i = 0; i < filePaths.length; i++) {
       final filePath = filePaths[i];
       final file = File(filePath);
       
-      // If file exists and is not an asset path, use it directly
+      // If the file already exists on disk and is not a Flutter asset, use it directly.
+      // Do NOT add it to createdTempFiles — we must not delete persistent files.
       if (await file.exists() && !filePath.startsWith('assets/')) {
         preparedFiles.add(filePath);
-        print('Using existing file: $filePath');
+        print('Using existing file for export (will not be deleted): $filePath');
       } else {
-        // Try to load as asset and copy to temp
+        // Load from Flutter asset bundle and write to a real temp file.
         try {
           final byteData = await rootBundle.load(filePath);
           final fileName = 'export_audio_$i${_getFileExtension(filePath)}';
           final tempFile = File('${tempDir.path}/$fileName');
           await tempFile.writeAsBytes(byteData.buffer.asUint8List());
           preparedFiles.add(tempFile.path);
-          print('Copied asset to temp: ${tempFile.path}');
+          createdTempFiles.add(tempFile.path); // track for cleanup
+          print('Copied asset to temp (will be deleted after export): ${tempFile.path}');
         } catch (e) {
-          // If it's not an asset, try as regular file
+          // Not an asset — try one more time as a plain file path.
           if (await file.exists()) {
             preparedFiles.add(filePath);
+            print('Using existing file for export (will not be deleted): $filePath');
           } else {
             throw Exception('File not found: $filePath');
           }
@@ -301,7 +315,7 @@ class AudioProcessor {
       }
     }
     
-    return preparedFiles;
+    return (prepared: preparedFiles, created: createdTempFiles);
   }
   
   /// Build FFmpeg command for export with duration control and MP3 output

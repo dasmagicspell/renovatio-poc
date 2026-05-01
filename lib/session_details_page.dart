@@ -96,6 +96,7 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
   
   // Export state
   bool _isExporting = false;
+  bool _soundLayerConfigChanged = false;
   
   @override
   void initState() {
@@ -1406,6 +1407,56 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
       return;
     }
     
+    if (_soundLayerConfigChanged) {
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          backgroundColor: const Color(0xFFEDEAE6),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: const Row(
+            children: [
+              Icon(Icons.tune_rounded, color: Color(0xFF7BC4B8), size: 22),
+              SizedBox(width: 10),
+              Text(
+                'Configuration Changed',
+                style: TextStyle(
+                  color: Color(0xFF2F2F2F),
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ],
+          ),
+          content: const Text(
+            'You\'ve adjusted one or more audio layer settings (volume or speed). '
+            'These changes will be applied to the exported soundscape.',
+            style: TextStyle(color: Color(0xFF5C574F), fontSize: 14, height: 1.5),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text(
+                'Cancel',
+                style: TextStyle(color: Color(0xFF7A7570)),
+              ),
+            ),
+            ElevatedButton(
+              onPressed: () => Navigator.of(context).pop(true),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF7BC4B8),
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10),
+                ),
+              ),
+              child: const Text('Export Anyway'),
+            ),
+          ],
+        ),
+      );
+      if (confirmed != true) return;
+    }
+
     setState(() {
       _isExporting = true;
     });
@@ -1940,6 +1991,7 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
                     onChanged: (value) {
                       setState(() {
                         _volume = value;
+                        if (!_soundLayerConfigChanged) _soundLayerConfigChanged = true;
                       });
                       _audioPlayer?.setVolume(value);
                     },
@@ -1975,6 +2027,7 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
                     onChanged: (value) {
                       setState(() {
                         _speed = value;
+                        if (!_soundLayerConfigChanged) _soundLayerConfigChanged = true;
                       });
                       _audioPlayer?.setSpeed(value);
                     },
@@ -2116,6 +2169,7 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
                     onChanged: (value) {
                       setState(() {
                         _backgroundVolume = value;
+                        if (!_soundLayerConfigChanged) _soundLayerConfigChanged = true;
                       });
                       _backgroundMusicPlayer?.setVolume(value);
                     },
@@ -2151,6 +2205,7 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
                     onChanged: (value) {
                       setState(() {
                         _backgroundSpeed = value;
+                        if (!_soundLayerConfigChanged) _soundLayerConfigChanged = true;
                       });
                       _backgroundMusicPlayer?.setSpeed(value);
                     },
@@ -2275,6 +2330,7 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
                     onChanged: (value) {
                       setState(() {
                         _ambienceVolume = value;
+                        if (!_soundLayerConfigChanged) _soundLayerConfigChanged = true;
                       });
                       _natureAmbiencePlayer?.setVolume(value);
                     },
@@ -2310,6 +2366,7 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
                     onChanged: (value) {
                       setState(() {
                         _ambienceSpeed = value;
+                        if (!_soundLayerConfigChanged) _soundLayerConfigChanged = true;
                       });
                       _natureAmbiencePlayer?.setSpeed(value);
                     },
@@ -2419,6 +2476,7 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
                     onChanged: (value) {
                       setState(() {
                         _narrationVolume = value;
+                        if (!_soundLayerConfigChanged) _soundLayerConfigChanged = true;
                       });
                       _narrationPlayer?.setVolume(value);
                     },
@@ -2454,6 +2512,7 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
                     onChanged: (value) {
                       setState(() {
                         _narrationSpeed = value;
+                        if (!_soundLayerConfigChanged) _soundLayerConfigChanged = true;
                       });
                       _narrationPlayer?.setSpeed(value);
                     },
