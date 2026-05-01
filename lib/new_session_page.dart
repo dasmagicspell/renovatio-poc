@@ -2676,7 +2676,7 @@ class _NewSessionPageState extends State<NewSessionPage> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'Listen to all active layers at the volumes you set before creating.',
+                      'Listen to all active layers at the volumes you set including narration (using default text).',
                       style: TextStyle(color: _textSecondary, fontSize: 13),
                     ),
                     const SizedBox(height: 14),

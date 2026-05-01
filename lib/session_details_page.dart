@@ -2800,7 +2800,7 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
               ),
               const SizedBox(width: 12),
               const Text(
-                'Heart Rate Monitor',
+                'Bio Monitor',
                 style: TextStyle(
                   color: Color(0xFF2F2F2F),
                   fontSize: 20,
@@ -2892,8 +2892,8 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
                   children: [
                     _PremiumFeatureChip(label: 'Live BPM'),
                     SizedBox(width: 8),
-                    _PremiumFeatureChip(label: 'Heart Zone Tracking'),
-                    SizedBox(width: 8),
+                    // _PremiumFeatureChip(label: 'Heart Zone Tracking'),
+                    // SizedBox(width: 8),
                     _PremiumFeatureChip(label: 'AI Adaptation'),
                   ],
                 ),
@@ -2910,13 +2910,13 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
                   ),
                 ),
                 const SizedBox(height: 16),
-                OutlinedButton.icon(
+                ElevatedButton.icon(
                   onPressed: () {},
                   icon: const Icon(Icons.mail_outline_rounded, size: 18),
                   label: const Text('Contact Us to Upgrade'),
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: const Color(0xFFB8A4D4),
-                    side: const BorderSide(color: Color(0xFFB8A4D4)),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFFB8A4D4),
+                    foregroundColor: Colors.white,
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(12),
                     ),
