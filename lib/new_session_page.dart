@@ -1799,7 +1799,7 @@ class _NewSessionPageState extends State<NewSessionPage> {
               // Description & Duration Card
               _buildFormCard(
                 icon: Icons.edit_note_outlined,
-                title: 'Session',
+                title: 'Soundscape',
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -1808,7 +1808,7 @@ class _NewSessionPageState extends State<NewSessionPage> {
                     TextFormField(
                       controller: _sessionNameController,
                       style: const TextStyle(color: _textPrimary),
-                      decoration: _fieldDecoration(hint: 'e.g. Morning Focus Session'),
+                      decoration: _fieldDecoration(hint: 'e.g. Morning Focus'),
                       validator: (value) {
                         if (value == null || value.trim().isEmpty) {
                           return 'Please enter a soundscape name';
@@ -1820,7 +1820,7 @@ class _NewSessionPageState extends State<NewSessionPage> {
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        _buildFieldLabel('SESSION LENGTH'),
+                        _buildFieldLabel('SOUNDSCAPE LENGTH'),
                         Container(
                           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                           decoration: BoxDecoration(
@@ -2236,7 +2236,7 @@ class _NewSessionPageState extends State<NewSessionPage> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    _buildFieldLabel('NATURE SOUND'),
+                    _buildFieldLabel('BACKGROUND SOUND'),
                     const SizedBox(height: 8),
                     Row(
                       children: [
@@ -2779,7 +2779,7 @@ class _NewSessionPageState extends State<NewSessionPage> {
                         )
                       : const Icon(Icons.check_circle, color: Colors.white),
                   label: Text(
-                    _isCreatingSoundscape ? 'Generating binaural audio…' : 'Create Soundscape',
+                    _isCreatingSoundscape ? 'Saving soundscape…' : 'Save Soundscape',
                     style: const TextStyle(
                       color: Colors.white,
                       fontSize: 17,

@@ -276,23 +276,6 @@ class _SessionsPageState extends State<SessionsPage> {
               fontSize: 14,
             ),
           ),
-          const SizedBox(height: 28),
-          ElevatedButton.icon(
-            onPressed: _navigateToNewSession,
-            icon: const Icon(Icons.add, color: Colors.white),
-            label: const Text(
-              'Create Soundscape',
-              style: TextStyle(color: Colors.white),
-            ),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: _primary,
-              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(10),
-              ),
-              elevation: 0,
-            ),
-          ),
         ],
       ),
     );

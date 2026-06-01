@@ -18,16 +18,16 @@ class _MainNavigationState extends State<MainNavigation> {
   
   final List<Widget> _pages = [
     const SessionsPage(),
-    const AudioPlayerPage(),
-    const AudioGenerationPage(),
-    const HealthDataPage(),
+    // const AudioPlayerPage(),
+    // const AudioGenerationPage(),
+    // const HealthDataPage(),
   ];
   
   final List<String> _pageTitles = [
     'Wellness Soundscapes',
-    'Audio Player',
-    'Audio Generation',
-    'Health Data',
+    // 'Audio Player',
+    // 'Audio Generation',
+    // 'Health Data',
   ];
 
   @override
@@ -144,9 +144,9 @@ class _MainNavigationState extends State<MainNavigation> {
               padding: const EdgeInsets.symmetric(vertical: 8),
               children: [
                 _buildDrawerItem(0, 'Soundscapes', Icons.psychology),
-                _buildDrawerItem(1, 'Audio Player', Icons.music_note),
-                _buildDrawerItem(2, 'Audio Generation', Icons.graphic_eq),
-                _buildDrawerItem(3, 'Health Data', Icons.favorite),
+                // _buildDrawerItem(1, 'Audio Player', Icons.music_note),
+                // _buildDrawerItem(2, 'Audio Generation', Icons.graphic_eq),
+                // _buildDrawerItem(3, 'Health Data', Icons.favorite),
                 
                 Divider(
                   color: const Color(0xFFD9D0C8),
