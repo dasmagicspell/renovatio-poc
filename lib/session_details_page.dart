@@ -1415,7 +1415,7 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
           title: const Row(
             children: [
-              Icon(Icons.tune_rounded, color: Color(0xFF7BC4B8), size: 22),
+              Icon(Icons.tune_rounded, color: Color(0xFF2F6F65), size: 22),
               SizedBox(width: 10),
               Text(
                 'Configuration Changed',
@@ -1443,7 +1443,7 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
             ElevatedButton(
               onPressed: () => Navigator.of(context).pop(true),
               style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF7BC4B8),
+                backgroundColor: const Color(0xFF2F6F65),
                 foregroundColor: Colors.white,
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(10),
@@ -1680,12 +1680,12 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
                 gradient: const LinearGradient(
                   begin: Alignment.topLeft,
                   end: Alignment.bottomRight,
-                  colors: [Color(0xFF7BC4B8), Color(0xFFB8A4D4)],
+                  colors: [Color(0xFF2F6F65), Color(0xFFB8A4D4)],
                 ),
                 borderRadius: BorderRadius.circular(20),
                 boxShadow: [
                   BoxShadow(
-                    color: const Color(0xFF7BC4B8).withOpacity(0.25),
+                    color: const Color(0xFF2F6F65).withOpacity(0.25),
                     blurRadius: 18,
                     offset: const Offset(0, 6),
                   ),
@@ -1838,7 +1838,7 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
                     const CircularProgressIndicator(
-                      color: Color(0xFF7BC4B8),
+                      color: Color(0xFF2F6F65),
                       strokeWidth: 4,
                     ),
                     const SizedBox(height: 16),
@@ -1883,7 +1883,7 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
             children: [
               const Icon(
                 Icons.headphones,
-                color: Color(0xFF7BC4B8),
+                color: Color(0xFF2F6F65),
                 size: 24,
               ),
               const SizedBox(width: 12),
@@ -1946,7 +1946,7 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
             const Center(
               child: Padding(
                 padding: EdgeInsets.all(20),
-                child: CircularProgressIndicator(color: Color(0xFF7BC4B8)),
+                child: CircularProgressIndicator(color: Color(0xFF2F6F65)),
               ),
             )
           else if (_audioPlayer == null)
@@ -1966,7 +1966,7 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
                 iconSize: 64,
                 icon: Icon(
                   _isPlaying ? Icons.pause_circle_filled : Icons.play_circle_filled,
-                  color: Color(0xFF7BC4B8),
+                  color: Color(0xFF2F6F65),
                 ),
                 onPressed: _togglePlayPause,
               ),
@@ -1987,7 +1987,7 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
                     min: 0.0,
                     max: 1.0,
                     divisions: 50,
-                    activeColor: const Color(0xFF7BC4B8),
+                    activeColor: const Color(0xFF2F6F65),
                     onChanged: (value) {
                       setState(() {
                         _volume = value;
@@ -2023,7 +2023,7 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
                     min: 0.5,
                     max: 2.0,
                     divisions: 30,
-                    activeColor: const Color(0xFF7BC4B8),
+                    activeColor: const Color(0xFF2F6F65),
                     onChanged: (value) {
                       setState(() {
                         _speed = value;
@@ -2249,7 +2249,7 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
             children: [
               const Icon(
                 Icons.park,
-                color: Color(0xFF7BC4B8),
+                color: Color(0xFF2F6F65),
                 size: 24,
               ),
               const SizedBox(width: 12),
@@ -2285,7 +2285,7 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
             const Center(
               child: Padding(
                 padding: EdgeInsets.all(20),
-                child: CircularProgressIndicator(color: Color(0xFF7BC4B8)),
+                child: CircularProgressIndicator(color: Color(0xFF2F6F65)),
               ),
             )
           else if (_natureAmbiencePlayer == null)
@@ -2305,7 +2305,7 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
                 iconSize: 64,
                 icon: Icon(
                   _isPlayingAmbience ? Icons.pause_circle_filled : Icons.play_circle_filled,
-                  color: Color(0xFF7BC4B8),
+                  color: Color(0xFF2F6F65),
                 ),
                 onPressed: _toggleAmbiencePlayPause,
               ),
@@ -2326,7 +2326,7 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
                     min: 0.0,
                     max: 1.0,
                     divisions: 50,
-                    activeColor: const Color(0xFF7BC4B8),
+                    activeColor: const Color(0xFF2F6F65),
                     onChanged: (value) {
                       setState(() {
                         _ambienceVolume = value;
@@ -2362,7 +2362,7 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
                     min: 0.5,
                     max: 2.0,
                     divisions: 30,
-                    activeColor: const Color(0xFF7BC4B8),
+                    activeColor: const Color(0xFF2F6F65),
                     onChanged: (value) {
                       setState(() {
                         _ambienceSpeed = value;
@@ -2644,7 +2644,7 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
                 ),
               ),
               style: ElevatedButton.styleFrom(
-                backgroundColor: _isExporting ? const Color(0xFFBDB5AF) : const Color(0xFF7BC4B8),
+                backgroundColor: _isExporting ? const Color(0xFFBDB5AF) : const Color(0xFF2F6F65),
                 foregroundColor: Colors.white,
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(14),
@@ -2812,7 +2812,7 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
                 padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                 decoration: BoxDecoration(
                   gradient: const LinearGradient(
-                    colors: [Color(0xFFB8A4D4), Color(0xFF7BC4B8)],
+                    colors: [Color(0xFFB8A4D4), Color(0xFF2F6F65)],
                   ),
                   borderRadius: BorderRadius.circular(20),
                 ),

@@ -102,7 +102,7 @@ class _NewSessionPageState extends State<NewSessionPage> {
   AudioPlayer? _binauralPreviewPlayer;
   StreamSubscription? _binauralPreviewStateSubscription;
 
-  static const _primary = Color(0xFF7BC4B8);
+  static const _primary = Color(0xFF2F6F65);
   static const _secondary = Color(0xFFB8A4D4);
   static const _background = Color(0xFFF3E4D7);
   static const _surface = Color(0xFFEDEAE6);

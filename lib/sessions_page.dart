@@ -18,7 +18,7 @@ class _SessionsPageState extends State<SessionsPage> {
   List<Session> _sessions = [];
   bool _isLoading = true;
 
-  static const _primary = Color(0xFF7BC4B8);
+  static const _primary = Color(0xFF2F6F65);
   static const _background = Color(0xFFF3E4D7);
   static const _surface = Color(0xFFEDEAE6);
   static const _textPrimary = Color(0xFF2F2F2F);
