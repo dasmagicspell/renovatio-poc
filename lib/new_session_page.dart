@@ -109,6 +109,7 @@ class _NewSessionPageState extends State<NewSessionPage> {
   static const _textPrimary = Color(0xFF2F2F2F);
   static const _textSecondary = Color(0xFF7A7570);
   static const _border = Color(0xFFD9D0C8);
+  static const _previewButtonDisabledBg = Color(0xFFC5BDB6);
   
   // Activity options mapped to their brainwave band name.
   static const Map<String, String> _activityBand = {
@@ -150,10 +151,107 @@ class _NewSessionPageState extends State<NewSessionPage> {
   @override
   void initState() {
     super.initState();
+    _sessionNameController.addListener(_onFormContentChanged);
+    _narrationTextController.addListener(_onFormContentChanged);
     _loadVoices();
     _loadUserMusicTracks();
     _loadUserAmbienceTracks();
     _loadUserNarrationTracks();
+  }
+
+  void _onFormContentChanged() {
+    if (mounted) setState(() {});
+  }
+
+  /// True when the user has changed anything from the initial empty form.
+  bool get _hasUnsavedChanges {
+    if (_sessionNameController.text.trim().isNotEmpty) return true;
+    if (_narrationTextController.text.trim().isNotEmpty) return true;
+    if (_selectedActivity != null) return true;
+    if (_durationMinutes != 15.0) return true;
+    if (_selectedBackgroundMusic != null &&
+        _selectedBackgroundMusic != 'None') {
+      return true;
+    }
+    if (_selectedBackgroundAmbience != null &&
+        _selectedBackgroundAmbience != 'None') {
+      return true;
+    }
+    if (_selectedUserNarration != null &&
+        _selectedUserNarration != 'None' &&
+        _selectedUserNarration != '__narration_divider__') {
+      return true;
+    }
+    if (_selectedVoice != null) return true;
+    if (!_goalEnabled ||
+        !_musicEnabled ||
+        !_ambienceEnabled ||
+        !_narrationEnabled) {
+      return true;
+    }
+    if (_binauralVolume != 0.8) return true;
+    if (_musicVolume != 0.1) return true;
+    if (_ambienceVolume != 0.1) return true;
+    if (_narrationVolume != 0.35) return true;
+    if ((_baseFrequencyHz - 200.0).abs() > 0.001) return true;
+    if (_selectedActivity != null) {
+      final defaultBeat = BinauralGoalFrequencies.defaultBeatHzForGoal(
+        _selectedActivity!,
+      );
+      if ((_beatFrequencyHz - defaultBeat).abs() > 0.001) return true;
+    } else if ((_beatFrequencyHz - 2.0).abs() > 0.001) {
+      return true;
+    }
+    return false;
+  }
+
+  Future<bool> _confirmDiscardChanges() async {
+    final discard = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: _surface,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+        title: const Text(
+          'Discard changes?',
+          style: TextStyle(color: _textPrimary, fontWeight: FontWeight.bold),
+        ),
+        content: const Text(
+          'You have unsaved changes on this soundscape. Leave without saving?',
+          style: TextStyle(color: _textSecondary),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Keep editing', style: TextStyle(color: _textSecondary)),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            style: TextButton.styleFrom(foregroundColor: Colors.red),
+            child: const Text('Leave'),
+          ),
+        ],
+      ),
+    );
+    return discard == true;
+  }
+
+  Future<void> _handleLeaveRequest() async {
+    if (_isCreatingSoundscape) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Please wait while your soundscape is being created.'),
+        ),
+      );
+      return;
+    }
+    if (!_hasUnsavedChanges) {
+      Navigator.of(context).pop();
+      return;
+    }
+    final leave = await _confirmDiscardChanges();
+    if (leave && mounted) {
+      Navigator.of(context).pop();
+    }
   }
 
   Future<void> _loadVoices() async {
@@ -836,6 +934,8 @@ class _NewSessionPageState extends State<NewSessionPage> {
 
   @override
   void dispose() {
+    _sessionNameController.removeListener(_onFormContentChanged);
+    _narrationTextController.removeListener(_onFormContentChanged);
     _sessionNameController.dispose();
     _narrationTextController.dispose();
     _playerStateSubscription?.cancel();
@@ -1599,9 +1699,44 @@ class _NewSessionPageState extends State<NewSessionPage> {
     }
   }
 
+  Future<bool> _confirmOverwriteNarrationScript() async {
+    final overwrite = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: _surface,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+        title: const Text(
+          'Replace script?',
+          style: TextStyle(color: _textPrimary, fontWeight: FontWeight.bold),
+        ),
+        content: const Text(
+          'Your current narration script will be overwritten by a new AI-generated script.',
+          style: TextStyle(color: _textSecondary),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Cancel', style: TextStyle(color: _textSecondary)),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            style: TextButton.styleFrom(foregroundColor: Colors.red),
+            child: const Text('Replace'),
+          ),
+        ],
+      ),
+    );
+    return overwrite == true;
+  }
+
   Future<void> _generateScriptUsingAI() async {
     if (_isGeneratingScript) {
       return;
+    }
+
+    if (_narrationTextController.text.trim().isNotEmpty) {
+      final overwrite = await _confirmOverwriteNarrationScript();
+      if (!overwrite || !mounted) return;
     }
 
     final apiKey = ConfigService.openAIApiKey;
@@ -1711,7 +1846,13 @@ class _NewSessionPageState extends State<NewSessionPage> {
   
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
+    return PopScope(
+      canPop: !_hasUnsavedChanges && !_isCreatingSoundscape,
+      onPopInvokedWithResult: (didPop, result) async {
+        if (didPop) return;
+        await _handleLeaveRequest();
+      },
+      child: Scaffold(
       backgroundColor: _background,
       appBar: AppBar(
         title: const Text(
@@ -1726,7 +1867,7 @@ class _NewSessionPageState extends State<NewSessionPage> {
         surfaceTintColor: Colors.transparent,
         leading: IconButton(
           icon: const Icon(Icons.arrow_back, color: _textPrimary),
-          onPressed: () => Navigator.of(context).pop(),
+          onPressed: _handleLeaveRequest,
         ),
       ),
       body: Form(
@@ -2139,6 +2280,7 @@ class _NewSessionPageState extends State<NewSessionPage> {
                           isPlaying: _isPlayingBackgroundMusic,
                           onPlay: _playBackgroundMusicPreview,
                           onStop: _stopBackgroundMusicPreview,
+                          disabledBackgroundColor: _previewButtonDisabledBg,
                         ),
                       ],
                     ),
@@ -2303,6 +2445,7 @@ class _NewSessionPageState extends State<NewSessionPage> {
                           isPlaying: _isPlayingBackgroundAmbience,
                           onPlay: _playBackgroundAmbiencePreview,
                           onStop: _stopBackgroundAmbiencePreview,
+                          disabledBackgroundColor: _previewButtonDisabledBg,
                         ),
                       ],
                     ),
@@ -2415,6 +2558,7 @@ class _NewSessionPageState extends State<NewSessionPage> {
                                   isLoading: _isLoadingVoicePreview,
                                   onPlay: _playVoicePreview,
                                   onStop: _stopVoicePreview,
+                                  disabledBackgroundColor: _previewButtonDisabledBg,
                                 ),
                               ],
                             ),
@@ -2580,6 +2724,7 @@ class _NewSessionPageState extends State<NewSessionPage> {
                           isPlaying: _isPlayingNarrationFile,
                           onPlay: _playNarrationFilePreview,
                           onStop: _stopNarrationFilePreview,
+                          disabledBackgroundColor: _previewButtonDisabledBg,
                         ),
                       ],
                     ),
@@ -2802,6 +2947,7 @@ class _NewSessionPageState extends State<NewSessionPage> {
           ),
         ),
       ),
+    ),
     );
   }
   
@@ -2938,8 +3084,12 @@ class _NewSessionPageState extends State<NewSessionPage> {
     bool isLoading = false,
     required VoidCallback onPlay,
     required VoidCallback onStop,
+    /// When set, keeps a visible gray fill while disabled (Flutter clears
+    /// [IconButton] background on the disabled state unless resolved explicitly).
+    Color? disabledBackgroundColor,
   }) {
-    final color = isPlaying ? const Color(0xFFD4867A) : const Color(0xFF7BAF8E);
+    final activeColor =
+        isPlaying ? const Color(0xFFD4867A) : const Color(0xFF7BAF8E);
     return IconButton(
       onPressed: (enabled && !isLoading) ? (isPlaying ? onStop : onPlay) : null,
       icon: isLoading
@@ -2956,11 +3106,23 @@ class _NewSessionPageState extends State<NewSessionPage> {
               color: enabled ? Colors.white : _textSecondary,
             ),
       style: IconButton.styleFrom(
-        backgroundColor: enabled ? color : _border,
         padding: const EdgeInsets.all(12),
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(10),
         ),
+      ).copyWith(
+        backgroundColor: WidgetStateProperty.resolveWith((states) {
+          if (!enabled || states.contains(WidgetState.disabled)) {
+            return disabledBackgroundColor ?? _border;
+          }
+          return activeColor;
+        }),
+        foregroundColor: WidgetStateProperty.resolveWith((states) {
+          if (!enabled || states.contains(WidgetState.disabled)) {
+            return _textSecondary;
+          }
+          return Colors.white;
+        }),
       ),
     );
   }

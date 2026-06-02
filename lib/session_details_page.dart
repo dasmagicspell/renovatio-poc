@@ -2534,9 +2534,91 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
     );
   }
   
+  /// Validates preconditions then starts (or resumes) playback.
+  void _onPlayPressed() {
+    if (_audioPlayer == null &&
+        _backgroundMusicPlayer == null &&
+        _natureAmbiencePlayer == null &&
+        _narrationPlayer == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('No audio files loaded. Please wait for audio to load.'),
+          backgroundColor: Colors.orange,
+          duration: Duration(seconds: 2),
+        ),
+      );
+      return;
+    }
+    if (widget.session.narrationEnabled &&
+        widget.session.narrationText.trim().isNotEmpty &&
+        _narrationPlayer == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Narration audio is still being generated. Please wait...'),
+          backgroundColor: Colors.orange,
+          duration: Duration(seconds: 2),
+        ),
+      );
+      return;
+    }
+    _startSession();
+  }
+
+  Widget _buildCircularPlayerButton({
+    required IconData? icon,
+    required VoidCallback? onPressed,
+    required Color backgroundColor,
+    required double size,
+    required double iconSize,
+    bool isLoading = false,
+  }) {
+    return SizedBox(
+      width: size,
+      height: size,
+      child: ElevatedButton(
+        onPressed: onPressed,
+        style: ButtonStyle(
+          backgroundColor: WidgetStateProperty.all(backgroundColor),
+          foregroundColor: WidgetStateProperty.all(Colors.white),
+          overlayColor: WidgetStateProperty.all(
+            onPressed != null
+                ? Colors.white.withOpacity(0.18)
+                : Colors.transparent,
+          ),
+          elevation: WidgetStateProperty.all(onPressed != null ? 3.0 : 0.0),
+          shadowColor: WidgetStateProperty.all(
+            backgroundColor.withOpacity(0.4),
+          ),
+          shape: WidgetStateProperty.all(const CircleBorder()),
+          padding: WidgetStateProperty.all(EdgeInsets.zero),
+        ),
+        child: isLoading
+            ? SizedBox(
+                width: iconSize * 0.65,
+                height: iconSize * 0.65,
+                child: const CircularProgressIndicator(
+                  color: Colors.white,
+                  strokeWidth: 2.5,
+                ),
+              )
+            : Icon(icon, size: iconSize, color: Colors.white),
+      ),
+    );
+  }
+
   Widget _buildSessionControls() {
+    // True when at least one layer is actively playing.
+    final isPlaying = _isSessionStarted &&
+        (_isPlaying ||
+            _isPlayingBackground ||
+            _isPlayingAmbience ||
+            _isPlayingNarration);
+
+    // Disabled grey used for inactive buttons.
+    const disabledColor = Color(0xFFC5BDB6);
+
     return Container(
-      padding: const EdgeInsets.all(20),
+      padding: const EdgeInsets.fromLTRB(20, 20, 20, 24),
       decoration: BoxDecoration(
         color: const Color(0xFFEDEAE6),
         borderRadius: BorderRadius.circular(16),
@@ -2552,222 +2634,236 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          if (!_isSessionStarted) ...[
-            // Start Session Button
-            ElevatedButton.icon(
-              onPressed: () {
-                // Check if at least one audio is loaded
-                if (_audioPlayer == null && 
-                    _backgroundMusicPlayer == null && 
-                    _natureAmbiencePlayer == null && 
-                    _narrationPlayer == null) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text('No audio files loaded. Please wait for audio to load.'),
-                      backgroundColor: Colors.orange,
-                      duration: Duration(seconds: 2),
-                    ),
-                  );
-                  return;
-                }
-                
-                // If narration text exists, ensure narration is loaded
-                if (widget.session.narrationText.trim().isNotEmpty && _narrationPlayer == null) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text('Narration audio is still being generated. Please wait...'),
-                      backgroundColor: Colors.orange,
-                      duration: Duration(seconds: 2),
-                    ),
-                  );
-                  return;
-                }
-                
-                // Don't allow starting if any audio is still loading
-                if (_isAnyAudioLoading) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text(_isGeneratingNarration 
-                          ? 'Generating narration audio. Please wait...'
-                          : 'Audio files are still loading. Please wait...'),
-                      backgroundColor: Colors.orange,
-                      duration: const Duration(seconds: 2),
-                    ),
-                  );
-                  return;
-                }
-                
-                _startSession();
-              },
-              icon: const Icon(Icons.play_arrow, size: 28),
-              label: const Padding(
-                padding: EdgeInsets.symmetric(vertical: 16),
-                child: Text(
-                  'Start Soundscape',
-                  style: TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
+          // ── Header ───────────────────────────────────────────────
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF2F6F65).withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Icon(
+                  Icons.queue_music_rounded,
+                  color: Color(0xFF2F6F65),
+                  size: 18,
+                ),
+              ),
+              const SizedBox(width: 10),
+              const Text(
+                'Soundscape Player',
+                style: TextStyle(
+                  color: Color(0xFF2F2F2F),
+                  fontSize: 15,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              if (_isAnyAudioLoading) ...[
+                const Spacer(),
+                const SizedBox(
+                  width: 14,
+                  height: 14,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: Color(0xFF2F6F65),
                   ),
                 ),
-              ),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF7BAF8E),
-                foregroundColor: Colors.white,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(14),
-                ),
-                elevation: 2,
-              ),
-            ),
-            const SizedBox(height: 12),
-            // Export Button
-            ElevatedButton.icon(
-              onPressed: _isExporting ? null : _exportSoundscape,
-              icon: _isExporting
-                  ? const SizedBox(
-                      width: 20,
-                      height: 20,
-                      child: CircularProgressIndicator(
-                        color: const Color(0xFF2F2F2F),
-                        strokeWidth: 2,
-                      ),
-                    )
-                  : const Icon(Icons.download, size: 24),
-              label: Padding(
-                padding: const EdgeInsets.symmetric(vertical: 14),
-                child: Text(
-                  _isExporting ? 'Exporting...' : 'Export Soundscape',
+                const SizedBox(width: 6),
+                Text(
+                  _isGeneratingNarration ? 'Generating...' : 'Loading...',
                   style: const TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: _isExporting ? const Color(0xFFBDB5AF) : const Color(0xFF2F6F65),
-                foregroundColor: Colors.white,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(14),
-                ),
-                elevation: 2,
-              ),
-            ),
-          ] else ...[
-            Padding(
-              padding: const EdgeInsets.only(bottom: 12),
-              child: Column(
-                children: [
-                  Text(
-                    'Time left',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      color: const Color(0xFF5C574F).withValues(alpha: 0.85),
-                      fontSize: 13,
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  ValueListenableBuilder<int>(
-                    valueListenable: _sessionRemainingNotifier,
-                    builder: (context, secondsLeft, _) {
-                      return Text(
-                        _formatSessionCountdown(secondsLeft),
-                        textAlign: TextAlign.center,
-                        style: const TextStyle(
-                          color: Color(0xFF2F2F2F),
-                          fontSize: 22,
-                          fontWeight: FontWeight.bold,
-                          fontFeatures: [FontFeature.tabularFigures()],
-                        ),
-                      );
-                    },
-                  ),
-                ],
-              ),
-            ),
-            // Pause and Stop Buttons
-            Row(
-              children: [
-                Expanded(
-                  child: ElevatedButton.icon(
-                    onPressed: _pauseAllAudio,
-                    icon: const Icon(Icons.pause, size: 24),
-                    label: const Padding(
-                      padding: EdgeInsets.symmetric(vertical: 14),
-                      child: Text(
-                        'Pause All',
-                        style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFFD4A76A),
-                      foregroundColor: Colors.white,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(14),
-                      ),
-                      elevation: 2,
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 16),
-                Expanded(
-                  child: ElevatedButton.icon(
-                    onPressed: _stopAllAudio,
-                    icon: const Icon(Icons.stop, size: 24),
-                    label: const Padding(
-                      padding: EdgeInsets.symmetric(vertical: 14),
-                      child: Text(
-                        'Stop All',
-                        style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFFD4867A),
-                      foregroundColor: Colors.white,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(14),
-                      ),
-                      elevation: 2,
-                    ),
+                    color: Color(0xFF7A7570),
+                    fontSize: 12,
                   ),
                 ),
               ],
-            ),
-            const SizedBox(height: 12),
-            // Resume button (if all are paused)
-            if (!_isPlaying &&
-                !_isPlayingBackground &&
-                !_isPlayingAmbience &&
-                !_isPlayingNarration)
-              ElevatedButton.icon(
-                onPressed: _startSession,
-                icon: const Icon(Icons.play_arrow, size: 24),
-                label: const Padding(
-                  padding: EdgeInsets.symmetric(vertical: 14),
-                  child: Text(
-                    'Resume Soundscape',
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
+            ],
+          ),
+
+          const SizedBox(height: 20),
+
+          // ── Progress bar ─────────────────────────────────────────
+          ValueListenableBuilder<int>(
+            valueListenable: _sessionRemainingNotifier,
+            builder: (context, secondsLeft, _) {
+              final total = _sessionTotalSeconds;
+              final elapsed =
+                  total > 0 ? (total - secondsLeft).clamp(0, total) : 0;
+              final progress =
+                  (total > 0 ? elapsed / total : 0.0).toDouble();
+
+              return Column(
+                children: [
+                  SliderTheme(
+                    data: SliderTheme.of(context).copyWith(
+                      trackHeight: 4,
+                      thumbShape: const RoundSliderThumbShape(
+                          enabledThumbRadius: 6),
+                      overlayShape: SliderComponentShape.noOverlay,
+                      activeTrackColor: const Color(0xFF2F6F65),
+                      inactiveTrackColor: const Color(0xFFD9D0C8),
+                      thumbColor: const Color(0xFF2F6F65),
+                      disabledActiveTrackColor:
+                          const Color(0xFF2F6F65).withOpacity(0.45),
+                      disabledInactiveTrackColor: const Color(0xFFD9D0C8),
+                      disabledThumbColor:
+                          const Color(0xFF2F6F65).withOpacity(0.45),
+                    ),
+                    child: Slider(
+                      value: progress,
+                      min: 0,
+                      max: 1,
+                      // Read-only — no seek.
+                      onChanged: null,
                     ),
                   ),
-                ),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF7BAF8E),
-                  foregroundColor: Colors.white,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(14),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 4),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(
+                          _isSessionStarted
+                              ? _formatSessionCountdown(elapsed)
+                              : '00:00',
+                          style: const TextStyle(
+                            color: Color(0xFF7A7570),
+                            fontSize: 12,
+                            fontFeatures: [FontFeature.tabularFigures()],
+                          ),
+                        ),
+                        Text(
+                          _isSessionStarted
+                              ? _formatSessionCountdown(secondsLeft)
+                              : _formatSessionCountdown(
+                                  widget.session.durationMinutes * 60),
+                          style: const TextStyle(
+                            color: Color(0xFF7A7570),
+                            fontSize: 12,
+                            fontFeatures: [FontFeature.tabularFigures()],
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
-                  elevation: 2,
+                ],
+              );
+            },
+          ),
+
+          const SizedBox(height: 28),
+
+          // ── Control buttons ──────────────────────────────────────
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              // Stop
+              _buildCircularPlayerButton(
+                icon: Icons.stop_rounded,
+                onPressed: _isSessionStarted ? _stopAllAudio : null,
+                backgroundColor:
+                    _isSessionStarted ? const Color(0xFFD4867A) : disabledColor,
+                size: 52,
+                iconSize: 26,
+              ),
+
+              const SizedBox(width: 28),
+
+              // Play / Pause  (primary, larger)
+              _buildCircularPlayerButton(
+                icon: isPlaying
+                    ? Icons.pause_rounded
+                    : Icons.play_arrow_rounded,
+                onPressed: _isAnyAudioLoading
+                    ? null
+                    : isPlaying
+                        ? _pauseAllAudio
+                        : _onPlayPressed,
+                isLoading: _isAnyAudioLoading,
+                backgroundColor: _isAnyAudioLoading
+                    ? disabledColor
+                    : isPlaying
+                        ? const Color(0xFFD4A76A)
+                        : const Color(0xFF7BAF8E),
+                size: 68,
+                iconSize: 34,
+              ),
+
+              const SizedBox(width: 28),
+
+              // Export
+              _buildCircularPlayerButton(
+                icon: Icons.download_rounded,
+                isLoading: _isExporting,
+                onPressed: (_isExporting || _isAnyAudioLoading)
+                    ? null
+                    : _exportSoundscape,
+                backgroundColor:
+                    (_isExporting || _isAnyAudioLoading)
+                        ? disabledColor
+                        : const Color(0xFF2F6F65),
+                size: 52,
+                iconSize: 24,
+              ),
+            ],
+          ),
+
+          const SizedBox(height: 10),
+
+          // ── Labels ───────────────────────────────────────────────
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              SizedBox(
+                width: 52,
+                child: Text(
+                  'Stop',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    color: _isSessionStarted
+                        ? const Color(0xFF2F2F2F)
+                        : const Color(0xFF7A7570),
+                    fontSize: 11,
+                    fontWeight: FontWeight.w500,
+                  ),
                 ),
               ),
-          ],
+              const SizedBox(width: 28),
+              SizedBox(
+                width: 68,
+                child: Text(
+                  _isAnyAudioLoading
+                      ? 'Loading'
+                      : isPlaying
+                          ? 'Pause'
+                          : _isSessionStarted
+                              ? 'Resume'
+                              : 'Play',
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    color: Color(0xFF2F2F2F),
+                    fontSize: 11,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 28),
+              SizedBox(
+                width: 52,
+                child: Text(
+                  'Export',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    color: (_isExporting || _isAnyAudioLoading)
+                        ? const Color(0xFF7A7570)
+                        : const Color(0xFF2F2F2F),
+                    fontSize: 11,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ),
+            ],
+          ),
         ],
       ),
     );
