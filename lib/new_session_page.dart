@@ -2226,7 +2226,16 @@ class _NewSessionPageState extends State<NewSessionPage> {
                             decoration: _fieldDecoration(hint: 'Select a track'),
                             dropdownColor: _surface,
                             style: const TextStyle(color: _textPrimary),
-                            icon: const Icon(Icons.arrow_drop_down, color: _textSecondary),
+                            icon: _isUploadingMusic
+                                ? const SizedBox(
+                                    width: 16,
+                                    height: 16,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      color: _primary,
+                                    ),
+                                  )
+                                : const Icon(Icons.arrow_drop_down, color: _textSecondary),
                             items: [
                               // Built-in bundled options
                               ..._backgroundMusicOptions.map((music) {
@@ -2253,9 +2262,40 @@ class _NewSessionPageState extends State<NewSessionPage> {
                                   );
                                 }),
                               ],
+                              // Upload option at the bottom
+                              const DropdownMenuItem<String>(
+                                enabled: false,
+                                value: '__music_upload_divider__',
+                                child: Divider(height: 1),
+                              ),
+                              DropdownMenuItem<String>(
+                                value: '__upload_music__',
+                                child: Row(
+                                  children: [
+                                    Icon(
+                                      Icons.upload_file_outlined,
+                                      size: 16,
+                                      color: _primary,
+                                    ),
+                                    const SizedBox(width: 8),
+                                    const Text(
+                                      'Upload a file…',
+                                      style: TextStyle(
+                                        color: _primary,
+                                        fontWeight: FontWeight.w500,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
                             ],
                             onChanged: (value) async {
-                              if (value == '__divider__') return;
+                              if (value == '__divider__' ||
+                                  value == '__music_upload_divider__') return;
+                              if (value == '__upload_music__') {
+                                if (!_isUploadingMusic) _uploadMusicFile();
+                                return;
+                              }
                               if (_isPlayingBackgroundMusic) {
                                 await _stopBackgroundMusicPreview();
                               }
@@ -2265,7 +2305,9 @@ class _NewSessionPageState extends State<NewSessionPage> {
                               if (_musicEnabled &&
                                   (value == null ||
                                       value.isEmpty ||
-                                      value == '__divider__')) {
+                                      value == '__divider__' ||
+                                      value == '__music_upload_divider__' ||
+                                      value == '__upload_music__')) {
                                 return 'Please select a track';
                               }
                               return null;
@@ -2276,7 +2318,9 @@ class _NewSessionPageState extends State<NewSessionPage> {
                         _buildPreviewButton(
                           enabled: _selectedBackgroundMusic != null &&
                               _selectedBackgroundMusic != 'None' &&
-                              _selectedBackgroundMusic != '__divider__',
+                              _selectedBackgroundMusic != '__divider__' &&
+                              _selectedBackgroundMusic != '__music_upload_divider__' &&
+                              _selectedBackgroundMusic != '__upload_music__',
                           isPlaying: _isPlayingBackgroundMusic,
                           onPlay: _playBackgroundMusicPreview,
                           onStop: _stopBackgroundMusicPreview,
@@ -2288,9 +2332,11 @@ class _NewSessionPageState extends State<NewSessionPage> {
                         _selectedBackgroundMusic != 'None') ...[
                       const SizedBox(height: 8),
                       Text(
-                        _isPlayingBackgroundMusic
-                            ? 'Playing preview — tap stop when done'
-                            : 'Tap play to preview this track',
+                        _isUploadingMusic
+                            ? 'Uploading file… MP3, M4A, WAV, AAC, FLAC, OGG · max 50 MB'
+                            : _isPlayingBackgroundMusic
+                                ? 'Playing preview — tap stop when done'
+                                : 'Tap play to preview this track',
                         style: TextStyle(
                           color: _isPlayingBackgroundMusic
                               ? const Color(0xFF7BAF8E)
@@ -2306,45 +2352,6 @@ class _NewSessionPageState extends State<NewSessionPage> {
                         setState(() => _musicVolume = v);
                         _backgroundMusicPreviewPlayer?.setVolume(v);
                       },
-                    ),
-                    const SizedBox(height: 12),
-                    // Upload button
-                    SizedBox(
-                      width: double.infinity,
-                      child: OutlinedButton.icon(
-                        onPressed: _isUploadingMusic ? null : _uploadMusicFile,
-                        icon: _isUploadingMusic
-                            ? const SizedBox(
-                                width: 16,
-                                height: 16,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                  color: _primary,
-                                ),
-                              )
-                            : const Icon(Icons.upload_file_outlined, size: 18),
-                        label: Text(
-                          _isUploadingMusic
-                              ? 'Uploading…'
-                              : 'Upload Music File',
-                        ),
-                        style: OutlinedButton.styleFrom(
-                          foregroundColor: _primary,
-                          side: BorderSide(color: _primary.withOpacity(0.45)),
-                          padding: const EdgeInsets.symmetric(vertical: 10),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(10),
-                          ),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      'MP3, M4A, WAV, AAC, FLAC, OGG · max 50 MB',
-                      style: TextStyle(
-                        color: _textSecondary,
-                        fontSize: 11,
-                      ),
                     ),
                     // User-uploaded tracks management list
                     // TODO: move to a dedicated management page
@@ -2389,7 +2396,16 @@ class _NewSessionPageState extends State<NewSessionPage> {
                             decoration: _fieldDecoration(hint: 'Select an ambience'),
                             dropdownColor: _surface,
                             style: const TextStyle(color: _textPrimary),
-                            icon: const Icon(Icons.arrow_drop_down, color: _textSecondary),
+                            icon: _isUploadingAmbience
+                                ? const SizedBox(
+                                    width: 16,
+                                    height: 16,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      color: _primary,
+                                    ),
+                                  )
+                                : const Icon(Icons.arrow_drop_down, color: _textSecondary),
                             items: [
                               // Built-in bundled options
                               ..._backgroundAmbienceOptions.map((ambience) {
@@ -2416,9 +2432,40 @@ class _NewSessionPageState extends State<NewSessionPage> {
                                   );
                                 }),
                               ],
+                              // Upload option at the bottom
+                              const DropdownMenuItem<String>(
+                                enabled: false,
+                                value: '__ambience_upload_divider__',
+                                child: Divider(height: 1),
+                              ),
+                              DropdownMenuItem<String>(
+                                value: '__upload_ambience__',
+                                child: Row(
+                                  children: [
+                                    Icon(
+                                      Icons.upload_file_outlined,
+                                      size: 16,
+                                      color: _primary,
+                                    ),
+                                    const SizedBox(width: 8),
+                                    const Text(
+                                      'Upload a file…',
+                                      style: TextStyle(
+                                        color: _primary,
+                                        fontWeight: FontWeight.w500,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
                             ],
                             onChanged: (value) async {
-                              if (value == '__ambience_divider__') return;
+                              if (value == '__ambience_divider__' ||
+                                  value == '__ambience_upload_divider__') return;
+                              if (value == '__upload_ambience__') {
+                                if (!_isUploadingAmbience) _uploadAmbienceFile();
+                                return;
+                              }
                               if (_isPlayingBackgroundAmbience) {
                                 await _stopBackgroundAmbiencePreview();
                               }
@@ -2430,7 +2477,9 @@ class _NewSessionPageState extends State<NewSessionPage> {
                               if (_ambienceEnabled &&
                                   (value == null ||
                                       value.isEmpty ||
-                                      value == '__ambience_divider__')) {
+                                      value == '__ambience_divider__' ||
+                                      value == '__ambience_upload_divider__' ||
+                                      value == '__upload_ambience__')) {
                                 return 'Please select an ambience';
                               }
                               return null;
@@ -2441,7 +2490,9 @@ class _NewSessionPageState extends State<NewSessionPage> {
                         _buildPreviewButton(
                           enabled: _selectedBackgroundAmbience != null &&
                               _selectedBackgroundAmbience != 'None' &&
-                              _selectedBackgroundAmbience != '__ambience_divider__',
+                              _selectedBackgroundAmbience != '__ambience_divider__' &&
+                              _selectedBackgroundAmbience != '__ambience_upload_divider__' &&
+                              _selectedBackgroundAmbience != '__upload_ambience__',
                           isPlaying: _isPlayingBackgroundAmbience,
                           onPlay: _playBackgroundAmbiencePreview,
                           onStop: _stopBackgroundAmbiencePreview,
@@ -2453,11 +2504,15 @@ class _NewSessionPageState extends State<NewSessionPage> {
                         _selectedBackgroundAmbience != 'None') ...[
                       const SizedBox(height: 8),
                       Text(
-                        _isPlayingBackgroundAmbience
-                            ? 'Playing preview — tap stop when done'
-                            : 'Tap play to preview this sound',
+                        _isUploadingAmbience
+                            ? 'Uploading file… MP3, M4A, WAV, AAC, FLAC, OGG · max 50 MB'
+                            : _isPlayingBackgroundAmbience
+                                ? 'Playing preview — tap stop when done'
+                                : 'Tap play to preview this sound',
                         style: TextStyle(
-                          color: _isPlayingBackgroundAmbience ? const Color(0xFF7BAF8E) : _textSecondary,
+                          color: _isPlayingBackgroundAmbience
+                              ? const Color(0xFF7BAF8E)
+                              : _textSecondary,
                           fontSize: 12,
                         ),
                       ),
@@ -2469,45 +2524,6 @@ class _NewSessionPageState extends State<NewSessionPage> {
                         setState(() => _ambienceVolume = v);
                         _backgroundAmbiencePreviewPlayer?.setVolume(v);
                       },
-                    ),
-                    const SizedBox(height: 12),
-                    // Upload button
-                    SizedBox(
-                      width: double.infinity,
-                      child: OutlinedButton.icon(
-                        onPressed: _isUploadingAmbience ? null : _uploadAmbienceFile,
-                        icon: _isUploadingAmbience
-                            ? const SizedBox(
-                                width: 16,
-                                height: 16,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                  color: _primary,
-                                ),
-                              )
-                            : const Icon(Icons.upload_file_outlined, size: 18),
-                        label: Text(
-                          _isUploadingAmbience
-                              ? 'Uploading…'
-                              : 'Upload Ambience File',
-                        ),
-                        style: OutlinedButton.styleFrom(
-                          foregroundColor: _primary,
-                          side: BorderSide(color: _primary.withOpacity(0.45)),
-                          padding: const EdgeInsets.symmetric(vertical: 10),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(10),
-                          ),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      'MP3, M4A, WAV, AAC, FLAC, OGG · max 50 MB',
-                      style: TextStyle(
-                        color: _textSecondary,
-                        fontSize: 11,
-                      ),
                     ),
                   ],
                 ),
