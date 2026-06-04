@@ -19,6 +19,7 @@ import 'services/user_music_library_service.dart';
 import 'services/user_ambience_library_service.dart';
 import 'services/user_narration_library_service.dart';
 import 'chatgpt_service.dart';
+import 'constants/default_narration_script.dart';
 import 'session_details_page.dart';
 
 class NewSessionPage extends StatefulWidget {
@@ -31,7 +32,9 @@ class NewSessionPage extends StatefulWidget {
 class _NewSessionPageState extends State<NewSessionPage> {
   final _formKey = GlobalKey<FormState>();
   final _sessionNameController = TextEditingController();
-  final _narrationTextController = TextEditingController();
+  final _narrationTextController = TextEditingController(
+    text: kDefaultNarrationScript,
+  );
   
   String? _selectedActivity;
   /// Carrier frequency (Hz) for the binaural tone.
@@ -166,7 +169,7 @@ class _NewSessionPageState extends State<NewSessionPage> {
   /// True when the user has changed anything from the initial empty form.
   bool get _hasUnsavedChanges {
     if (_sessionNameController.text.trim().isNotEmpty) return true;
-    if (_narrationTextController.text.trim().isNotEmpty) return true;
+    if (_narrationTextController.text.trim() != kDefaultNarrationScript.trim()) return true;
     if (_selectedActivity != null) return true;
     if (_durationMinutes != 15.0) return true;
     if (_selectedBackgroundMusic != null &&
