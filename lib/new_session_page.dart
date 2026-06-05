@@ -38,7 +38,7 @@ class _NewSessionPageState extends State<NewSessionPage> {
   
   String? _selectedActivity;
   /// Carrier frequency (Hz) for the binaural tone.
-  double _baseFrequencyHz = 200.0;
+  double _baseFrequencyHz = 100.0;
   /// Beat frequency (Hz) within the selected goal's band range.
   double _beatFrequencyHz = 2.0;
   bool _isCreatingSoundscape = false;
@@ -2068,12 +2068,9 @@ class _NewSessionPageState extends State<NewSessionPage> {
                     ),
                     if (_selectedActivity != null) ...[
                       const SizedBox(height: 16),
-                      _buildFieldLabel('BEAT FREQUENCY'),
+                      _buildFieldLabel('BEAT FREQUENCY (Try a range, because it varies by person)'),
                       const SizedBox(height: 4),
                       Builder(builder: (context) {
-                        final range = BinauralGoalFrequencies.bandRangeForGoal(
-                          _selectedActivity!,
-                        );
                         return Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
@@ -2088,16 +2085,27 @@ class _NewSessionPageState extends State<NewSessionPage> {
                                     const TextStyle(color: Colors.white),
                               ),
                               child: Slider(
-                                value: _beatFrequencyHz.clamp(
-                                  range.minHz,
-                                  range.maxHz,
-                                ),
-                                min: range.minHz,
-                                max: range.maxHz,
-                                divisions: range.divisions,
+                                value: _beatFrequencyHz.clamp(0.0, 100.0),
+                                min: 0.0,
+                                max: 100.0,
+                                divisions: 1000,
                                 label: '${_beatFrequencyHz.toStringAsFixed(1)} Hz',
                                 onChanged: (value) {
-                                  setState(() => _beatFrequencyHz = value);
+                                  setState(() {
+                                    _beatFrequencyHz = value;
+                                    final band = BinauralGoalFrequencies.bandNameForHz(value) ?? 'Delta';
+                                    final currentBand = _selectedActivity != null
+                                        ? _bandForActivity(_selectedActivity!)
+                                        : null;
+                                    if (band != currentBand) {
+                                      _selectedActivity = _activityBand.entries
+                                          .firstWhere(
+                                            (e) => e.value == band,
+                                            orElse: () => _activityBand.entries.first,
+                                          )
+                                          .key;
+                                    }
+                                  });
                                 },
                               ),
                             ),
@@ -2105,7 +2113,7 @@ class _NewSessionPageState extends State<NewSessionPage> {
                               mainAxisAlignment: MainAxisAlignment.spaceBetween,
                               children: [
                                 Text(
-                                  '${range.minHz.toStringAsFixed(1)} Hz',
+                                  '0.0 Hz',
                                   style: TextStyle(
                                     color: _textSecondary,
                                     fontSize: 12,
@@ -2131,7 +2139,7 @@ class _NewSessionPageState extends State<NewSessionPage> {
                                   ),
                                 ),
                                 Text(
-                                  '${range.maxHz.toStringAsFixed(0)} Hz',
+                                  '100 Hz',
                                   style: TextStyle(
                                     color: _textSecondary,
                                     fontSize: 12,
@@ -2156,10 +2164,10 @@ class _NewSessionPageState extends State<NewSessionPage> {
                         valueIndicatorTextStyle: const TextStyle(color: Colors.white),
                       ),
                       child: Slider(
-                        value: _baseFrequencyHz,
-                        min: 120,
-                        max: 440,
-                        divisions: 320,
+                        value: _baseFrequencyHz.clamp(100.0, 1500.0),
+                        min: 100,
+                        max: 1500,
+                        divisions: 1400,
                         label: '${_baseFrequencyHz.round()} Hz',
                         onChanged: (value) {
                           setState(() {
@@ -2171,7 +2179,7 @@ class _NewSessionPageState extends State<NewSessionPage> {
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        Text('120 Hz', style: TextStyle(color: _textSecondary, fontSize: 12)),
+                        Text('100 Hz', style: TextStyle(color: _textSecondary, fontSize: 12)),
                         Text(
                           '${_baseFrequencyHz.round()} Hz',
                           style: const TextStyle(
@@ -2180,7 +2188,7 @@ class _NewSessionPageState extends State<NewSessionPage> {
                             fontWeight: FontWeight.bold,
                           ),
                         ),
-                        Text('440 Hz', style: TextStyle(color: _textSecondary, fontSize: 12)),
+                        Text('1500 Hz', style: TextStyle(color: _textSecondary, fontSize: 12)),
                       ],
                     ),
                     const SizedBox(height: 6),

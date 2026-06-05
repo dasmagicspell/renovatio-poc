@@ -75,4 +75,16 @@ class BinauralGoalFrequencies {
     final band = _goalToBand[goal] ?? 'Alpha';
     return _bandRanges[band]!;
   }
+
+  /// Returns the brainwave band name for the given frequency in Hz.
+  /// Values below the Delta minimum (0.5 Hz) are treated as Delta.
+  /// Returns null only if [hz] is above the Gamma maximum.
+  static String? bandNameForHz(double hz) {
+    for (final entry in _bandRanges.entries) {
+      if (hz <= entry.value.maxHz) {
+        return entry.key;
+      }
+    }
+    return null;
+  }
 }
