@@ -1576,41 +1576,54 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
               }
             }
           } else {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text(
-                      'Soundscape exported successfully!',
-                      style: TextStyle(fontWeight: FontWeight.bold),
+            // Show the share sheet first so iOS doesn't conflict with SnackBar animation
+            try {
+              final box = context.findRenderObject() as RenderBox?;
+              final sharePositionOrigin = box != null
+                  ? box.localToGlobal(Offset.zero) & box.size
+                  : null;
+              await Share.shareXFiles(
+                [XFile(outputPath)],
+                text: 'Soundscape: ${widget.session.name}',
+                subject: 'Soundscape export',
+                sharePositionOrigin: sharePositionOrigin,
+              );
+            } catch (shareError) {
+              print('Share sheet error: $shareError');
+              if (mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text(
+                      'Export saved to app storage but could not open share sheet. Error: $shareError',
                     ),
-                    const SizedBox(height: 4),
-                    Text('File: ${outputPath.split('/').last}'),
-                    Text('Size: $fileSizeMB MB'),
-                    const SizedBox(height: 4),
-                    const Text(
-                      'Saved in app storage. Use Share to save to Files or share.',
-                      style: TextStyle(fontSize: 12),
-                    ),
-                  ],
-                ),
-                backgroundColor: Colors.green,
-                duration: const Duration(seconds: 5),
-              ),
-            );
-            unawaited(Future(() async {
-              try {
-                await Share.shareXFiles(
-                  [XFile(outputPath)],
-                  text: 'Soundscape: ${widget.session.name}',
-                  subject: 'Soundscape export',
+                    backgroundColor: Colors.orange,
+                    duration: const Duration(seconds: 6),
+                  ),
                 );
-              } catch (shareError) {
-                print('Share sheet error (optional): $shareError');
               }
-            }));
+            }
+
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Soundscape exported successfully!',
+                        style: TextStyle(fontWeight: FontWeight.bold),
+                      ),
+                      const SizedBox(height: 4),
+                      Text('File: ${outputPath.split('/').last}'),
+                      Text('Size: $fileSizeMB MB'),
+                    ],
+                  ),
+                  backgroundColor: Colors.green,
+                  duration: const Duration(seconds: 5),
+                ),
+              );
+            }
           }
         }
       } else {
