@@ -133,6 +133,71 @@ class _NewSessionPageState extends State<NewSessionPage> {
 
   String _bandForActivity(String activity) =>
       _activityBand[activity] ?? 'Alpha';
+
+  // ── Base-frequency range notes ──────────────────────────────────────────────
+  static const List<({double min, double max, String title, String body})>
+      _baseFreqRanges = [
+    (
+      min: 100,
+      max: 200,
+      title: '100–200 Hz — Deep & Rumbling',
+      body:
+          'These are low, bass-heavy tones that feel thick and grounding. Lower carrier frequencies resonate more physically and forcefully, which some users find deeply immersive. Others may find pure tones in this range uncomfortable over long sessions. Best suited for grounding and deep relaxation.\n\nNotable frequencies:\n• 126.22 Hz — associated with the Sun, used for deep meditation\n• 136.1 Hz — the "OM frequency," linked to Earth\'s resonance, used for grounding and anxiety relief\n• 194.18 Hz — associated with Earth\'s day cycle, used for sleep',
+    ),
+    (
+      min: 200,
+      max: 600,
+      title: '200–600 Hz — The Sweet Spot (Recommended)',
+      body:
+          'This is where the binaural beat experience is most effective. Research suggests carrier tones in this range produce the best beat perception and are most pleasant to listen to. The tone feels balanced — not too heavy, not too sharp. This is the range most scientific studies use, and where most intentionally-designed presets land.\n\nNotable frequencies:\n• 432 Hz — popular Solfeggio frequency, widely used in sound therapy\n• 528 Hz — the "Miracle Tone," associated with transformation and healing',
+    ),
+    (
+      min: 600,
+      max: 1000,
+      title: '600–1000 Hz — Bright & Clear',
+      body:
+          'The tone becomes noticeably brighter and more present. Still within the effective range for binaural beat perception, though the sound is lighter and less grounding than lower ranges. Some users prefer this for focus and productivity tasks.',
+    ),
+    (
+      min: 1000,
+      max: 1500,
+      title: '1000–1500 Hz — High-Pitched & Thin',
+      body:
+          'As you approach and exceed 1000 Hz, the binaural effect weakens noticeably. The brain has a harder time processing the phase difference between the two ears at this range, reducing entrainment effectiveness. The tone sounds sharp and thin. This range may still create an interesting auditory texture but is considered less effective for brainwave entrainment.',
+    ),
+  ];
+
+  ({double min, double max, String title, String body})? _baseFreqRangeNote(
+          double hz) =>
+      _baseFreqRanges.where((r) => hz >= r.min && hz <= r.max).firstOrNull;
+
+  void _showBaseFreqRangeDialog(
+      ({double min, double max, String title, String body}) range) {
+    showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: _surface,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+        title: Text(
+          range.title,
+          style: const TextStyle(
+              color: _textPrimary, fontWeight: FontWeight.bold, fontSize: 15),
+        ),
+        content: SingleChildScrollView(
+          child: Text(
+            range.body,
+            style: const TextStyle(color: _textSecondary, fontSize: 14, height: 1.5),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('Got it', style: TextStyle(color: _primary)),
+          ),
+        ],
+      ),
+    );
+  }
   
   // Background music options
   final List<String> _backgroundMusicOptions = [
@@ -2191,6 +2256,52 @@ class _NewSessionPageState extends State<NewSessionPage> {
                         Text('1500 Hz', style: TextStyle(color: _textSecondary, fontSize: 12)),
                       ],
                     ),
+                    const SizedBox(height: 8),
+                    Builder(builder: (context) {
+                      final note = _baseFreqRangeNote(_baseFrequencyHz);
+                      if (note == null) return const SizedBox.shrink();
+                      return Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 12, vertical: 8),
+                        decoration: BoxDecoration(
+                          color: _primary.withOpacity(0.07),
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(
+                              color: _primary.withOpacity(0.18), width: 1),
+                        ),
+                        child: Row(
+                          children: [
+                            Icon(Icons.info_outline,
+                                size: 15, color: _primary.withOpacity(0.7)),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                note.title,
+                                style: TextStyle(
+                                  color: _textPrimary.withOpacity(0.8),
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 4),
+                            GestureDetector(
+                              onTap: () => _showBaseFreqRangeDialog(note),
+                              child: Text(
+                                'Read more',
+                                style: TextStyle(
+                                  color: _primary,
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w600,
+                                  decoration: TextDecoration.underline,
+                                  decorationColor: _primary,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      );
+                    }),
                     const SizedBox(height: 6),
                     Text(
                       'A ${BinauralAudioGenerator.sessionLoopDurationSeconds}s loop will be generated and played on repeat.',
