@@ -4,6 +4,8 @@ import 'dart:math';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:ffmpeg_kit_flutter_new/ffmpeg_kit.dart';
+import 'package:ffmpeg_kit_flutter_new/return_code.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:uuid/uuid.dart';
@@ -51,11 +53,13 @@ class _NewSessionPageState extends State<NewSessionPage> {
   AudioPlayer? _backgroundMusicPreviewPlayer;
   bool _isPlayingBackgroundMusic = false;
   StreamSubscription? _playerStateSubscription;
-  
+  StreamSubscription? _backgroundMusicErrorSubscription;
+
   // Audio player for background ambience preview
   AudioPlayer? _backgroundAmbiencePreviewPlayer;
   bool _isPlayingBackgroundAmbience = false;
   StreamSubscription? _ambienceStateSubscription;
+  StreamSubscription? _ambienceErrorSubscription;
 
   // Audio player for narration voice preview
   AudioPlayer? _voicePreviewPlayer;
@@ -1077,6 +1081,23 @@ class _NewSessionPageState extends State<NewSessionPage> {
         },
       );
 
+      _backgroundMusicErrorSubscription =
+          _backgroundMusicPreviewPlayer!.playbackEventStream.listen(
+        null,
+        onError: (Object error, StackTrace stackTrace) {
+          debugPrint('Background music playback error: $error');
+          if (mounted) {
+            setState(() => _isPlayingBackgroundMusic = false);
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('Could not play preview. Please try again.'),
+                backgroundColor: Colors.red,
+              ),
+            );
+          }
+        },
+      );
+
       if (UserMusicLibraryService.isUserTrackKey(_selectedBackgroundMusic!)) {
         // User-uploaded track — load from file system.
         final trackId =
@@ -1136,7 +1157,9 @@ class _NewSessionPageState extends State<NewSessionPage> {
   Future<void> _stopBackgroundMusicPreview() async {
     await _playerStateSubscription?.cancel();
     _playerStateSubscription = null;
-    
+    await _backgroundMusicErrorSubscription?.cancel();
+    _backgroundMusicErrorSubscription = null;
+
     if (_backgroundMusicPreviewPlayer != null) {
       try {
         await _backgroundMusicPreviewPlayer!.stop();
@@ -1166,7 +1189,6 @@ class _NewSessionPageState extends State<NewSessionPage> {
       await _stopBackgroundAmbiencePreview();
       _backgroundAmbiencePreviewPlayer = AudioPlayer();
       
-      // Listen to player state changes
       _ambienceStateSubscription = _backgroundAmbiencePreviewPlayer!.playerStateStream.listen(
         (state) {
           if (mounted) {
@@ -1177,6 +1199,23 @@ class _NewSessionPageState extends State<NewSessionPage> {
         },
         onError: (Object error, StackTrace stackTrace) {
           debugPrint('Background ambience player stream error: $error');
+        },
+      );
+
+      _ambienceErrorSubscription =
+          _backgroundAmbiencePreviewPlayer!.playbackEventStream.listen(
+        null,
+        onError: (Object error, StackTrace stackTrace) {
+          debugPrint('Background ambience playback error: $error');
+          if (mounted) {
+            setState(() => _isPlayingBackgroundAmbience = false);
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('Could not play preview. Please try again.'),
+                backgroundColor: Colors.red,
+              ),
+            );
+          }
         },
       );
 
@@ -1244,7 +1283,9 @@ class _NewSessionPageState extends State<NewSessionPage> {
   Future<void> _stopBackgroundAmbiencePreview() async {
     await _ambienceStateSubscription?.cancel();
     _ambienceStateSubscription = null;
-    
+    await _ambienceErrorSubscription?.cancel();
+    _ambienceErrorSubscription = null;
+
     if (_backgroundAmbiencePreviewPlayer != null) {
       try {
         await _backgroundAmbiencePreviewPlayer!.stop();
@@ -1302,7 +1343,8 @@ class _NewSessionPageState extends State<NewSessionPage> {
         },
       );
 
-      await _voicePreviewPlayer!.setUrl(selectedVoice.previewUrl!);
+      final previewFilePath = await _downloadVoicePreviewToFile(selectedVoice.previewUrl!);
+      await _voicePreviewPlayer!.setFilePath(previewFilePath);
       await _voicePreviewPlayer!.play();
 
       if (mounted) {
@@ -1348,6 +1390,79 @@ class _NewSessionPageState extends State<NewSessionPage> {
     }
   }
   
+  // ---------------------------------------------------------------------------
+  // Voice preview helpers
+  // ---------------------------------------------------------------------------
+
+  /// Downloads a voice preview URL to a temp file and returns its path.
+  ///
+  /// Streaming a URL directly causes ExoPlayer on Android to enter offloaded /
+  /// direct audio mode, which can fail with DEAD_OBJECT (-32) when multiple
+  /// AudioTracks are open simultaneously. Playing from a local file keeps
+  /// ExoPlayer in normal buffered mode and avoids the issue.
+  Future<String> _downloadVoicePreviewToFile(String url) async {
+    final tmpDir = await getTemporaryDirectory();
+    final filePath = '${tmpDir.path}/voice_preview_${DateTime.now().millisecondsSinceEpoch}.mp3';
+    final file = File(filePath);
+
+    final client = HttpClient();
+    try {
+      final request = await client.getUrl(Uri.parse(url));
+      final response = await request.close();
+      final bytes = await response.fold<List<int>>(
+        <int>[],
+        (acc, chunk) => acc..addAll(chunk),
+      );
+      await file.writeAsBytes(bytes);
+    } finally {
+      client.close();
+    }
+    return filePath;
+  }
+
+  /// Converts any audio file to a 44.1 kHz stereo WAV and returns the path.
+  ///
+  /// Samsung devices (and others) aggressively route MP3 playback through a
+  /// hardware-offloaded AudioTrack. When multiple players compete for that
+  /// offload DSP path simultaneously the AudioTrack dies (DEAD_OBJECT / -32).
+  /// WAV/PCM is never offloaded — it always uses the standard buffered path —
+  /// so converting before playback makes multi-player preview reliable.
+  ///
+  /// [maxDurationSecs] limits transcoding to the first N seconds of the source,
+  /// keeping conversion fast for long tracks (preview only needs a short clip).
+  Future<String?> _convertAudioToWav(
+    String inputPath, {
+    int maxDurationSecs = 60,
+  }) async {
+    final tmpDir = await getTemporaryDirectory();
+    final outputPath =
+        '${tmpDir.path}/preview_${DateTime.now().millisecondsSinceEpoch}.wav';
+
+    final session = await FFmpegKit.execute(
+      '-y -i "$inputPath" -t $maxDurationSecs -ar 44100 -ac 2 -f wav "$outputPath"',
+    );
+
+    final rc = await session.getReturnCode();
+    if (ReturnCode.isSuccess(rc)) {
+      return outputPath;
+    }
+    debugPrint('FFmpeg WAV conversion failed for $inputPath');
+    return null;
+  }
+
+  /// Reads a Flutter asset into a temp file so FFmpeg (and setFilePath) can
+  /// access it — the asset bundle is not a real filesystem path.
+  Future<String> _extractAssetToTempFile(String assetPath) async {
+    final data = await rootBundle.load(assetPath);
+    final tmpDir = await getTemporaryDirectory();
+    final ext = assetPath.contains('.') ? '.${assetPath.split('.').last}' : '';
+    final tmpFile = File(
+      '${tmpDir.path}/asset_${DateTime.now().millisecondsSinceEpoch}$ext',
+    );
+    await tmpFile.writeAsBytes(data.buffer.asUint8List());
+    return tmpFile.path;
+  }
+
   // ---------------------------------------------------------------------------
   // Binaural preview (pure-Dart WAV synthesis, no FFmpeg)
   // ---------------------------------------------------------------------------
@@ -1493,6 +1608,15 @@ class _NewSessionPageState extends State<NewSessionPage> {
           }
 
           if (resolvedPath != null) {
+            // Convert to WAV to prevent Android audio offloading issues.
+            String? playPath;
+            try {
+              final sourcePath = isAsset
+                  ? await _extractAssetToTempFile(resolvedPath)
+                  : resolvedPath;
+              playPath = await _convertAudioToWav(sourcePath);
+            } catch (_) {}
+
             _backgroundMusicPreviewPlayer = AudioPlayer();
             _playerStateSubscription =
                 _backgroundMusicPreviewPlayer!.playerStateStream.listen((state) {
@@ -1500,7 +1624,9 @@ class _NewSessionPageState extends State<NewSessionPage> {
                 setState(() => _isPlayingBackgroundMusic = state.playing);
               }
             });
-            if (isAsset) {
+            if (playPath != null) {
+              await _backgroundMusicPreviewPlayer!.setFilePath(playPath);
+            } else if (isAsset) {
               await _backgroundMusicPreviewPlayer!.setAsset(resolvedPath);
             } else {
               await _backgroundMusicPreviewPlayer!.setFilePath(resolvedPath);
@@ -1538,6 +1664,15 @@ class _NewSessionPageState extends State<NewSessionPage> {
           }
 
           if (resolvedPath != null) {
+            // Convert to WAV to prevent Android audio offloading issues.
+            String? playPath;
+            try {
+              final sourcePath = isAsset
+                  ? await _extractAssetToTempFile(resolvedPath)
+                  : resolvedPath;
+              playPath = await _convertAudioToWav(sourcePath);
+            } catch (_) {}
+
             _backgroundAmbiencePreviewPlayer = AudioPlayer();
             _ambienceStateSubscription =
                 _backgroundAmbiencePreviewPlayer!.playerStateStream.listen(
@@ -1546,7 +1681,9 @@ class _NewSessionPageState extends State<NewSessionPage> {
                 setState(() => _isPlayingBackgroundAmbience = state.playing);
               }
             });
-            if (isAsset) {
+            if (playPath != null) {
+              await _backgroundAmbiencePreviewPlayer!.setFilePath(playPath);
+            } else if (isAsset) {
               await _backgroundAmbiencePreviewPlayer!.setAsset(resolvedPath);
             } else {
               await _backgroundAmbiencePreviewPlayer!.setFilePath(resolvedPath);
@@ -1573,6 +1710,7 @@ class _NewSessionPageState extends State<NewSessionPage> {
                 : null;
 
             if (filePath != null) {
+              final wavPath = await _convertAudioToWav(filePath);
               _narrationFilePreviewPlayer = AudioPlayer();
               _narrationFileStateSubscription =
                   _narrationFilePreviewPlayer!.playerStateStream.listen(
@@ -1581,7 +1719,11 @@ class _NewSessionPageState extends State<NewSessionPage> {
                   setState(() => _isPlayingNarrationFile = state.playing);
                 }
               });
-              await _narrationFilePreviewPlayer!.setFilePath(filePath);
+              if (wavPath != null) {
+                await _narrationFilePreviewPlayer!.setFilePath(wavPath);
+              } else {
+                await _narrationFilePreviewPlayer!.setFilePath(filePath);
+              }
               await _narrationFilePreviewPlayer!.setLoopMode(LoopMode.one);
               await _narrationFilePreviewPlayer!.setVolume(_narrationVolume);
               unawaited(_narrationFilePreviewPlayer!.play());
@@ -1607,7 +1749,9 @@ class _NewSessionPageState extends State<NewSessionPage> {
                 });
               }
             });
-            await _voicePreviewPlayer!.setUrl(_selectedVoice!.previewUrl!);
+            final previewFilePath = await _downloadVoicePreviewToFile(_selectedVoice!.previewUrl!);
+            final wavPath = await _convertAudioToWav(previewFilePath, maxDurationSecs: 30);
+            await _voicePreviewPlayer!.setFilePath(wavPath ?? previewFilePath);
             await _voicePreviewPlayer!.setVolume(_narrationVolume);
             unawaited(_voicePreviewPlayer!.play());
             if (mounted) setState(() => _isPlayingVoicePreview = true);
