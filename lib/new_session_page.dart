@@ -109,6 +109,10 @@ class _NewSessionPageState extends State<NewSessionPage> {
   AudioPlayer? _binauralPreviewPlayer;
   StreamSubscription? _binauralPreviewStateSubscription;
 
+  // Standalone binaural preview state
+  bool _isPlayingBinauralPreview = false;
+  bool _isLoadingBinauralPreview = false;
+
   static const _primary = Color(0xFF2F6F65);
   static const _secondary = Color(0xFFB8A4D4);
   static const _background = Color(0xFFF3E4D7);
@@ -1501,6 +1505,59 @@ class _NewSessionPageState extends State<NewSessionPage> {
         _binauralPreviewPlayer = null;
       } catch (_) {}
     }
+    if (mounted) {
+      setState(() {
+        _isPlayingBinauralPreview = false;
+        _isLoadingBinauralPreview = false;
+      });
+    }
+  }
+
+  Future<void> _playBinauralPreview() async {
+    if (_selectedActivity == null ||
+        _isPlayingBinauralPreview ||
+        _isLoadingBinauralPreview) return;
+
+    if (_isPreviewingAll) await _stopFullPreview();
+
+    setState(() => _isLoadingBinauralPreview = true);
+
+    try {
+      final wavPath = await _generateBinauralPreviewWav(
+        baseFrequencyHz: _baseFrequencyHz,
+        beatFrequencyHz: _beatFrequencyHz,
+      );
+
+      _binauralPreviewPlayer = AudioPlayer();
+      _binauralPreviewStateSubscription =
+          _binauralPreviewPlayer!.playerStateStream.listen((state) {
+        if (mounted) {
+          setState(() {
+            _isPlayingBinauralPreview =
+                _binauralPreviewPlayer != null &&
+                state.playing;
+          });
+        }
+      });
+
+      await _binauralPreviewPlayer!.setFilePath(wavPath);
+      await _binauralPreviewPlayer!.setLoopMode(LoopMode.one);
+      await _binauralPreviewPlayer!.setVolume(_binauralVolume);
+
+      if (mounted) setState(() => _isLoadingBinauralPreview = false);
+
+      unawaited(_binauralPreviewPlayer!.play());
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _isLoadingBinauralPreview = false;
+          _isPlayingBinauralPreview = false;
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error generating preview: $e')),
+        );
+      }
+    }
   }
 
   Future<void> _startFullPreview() async {
@@ -2217,36 +2274,71 @@ class _NewSessionPageState extends State<NewSessionPage> {
                   children: [
                     _buildFieldLabel('GOAL'),
                     const SizedBox(height: 8),
-                    DropdownButtonFormField<String>(
-                      value: _selectedActivity,
-                      decoration: _fieldDecoration(hint: 'Select your goal'),
-                      dropdownColor: _surface,
-                      style: const TextStyle(color: _textPrimary),
-                      icon: const Icon(Icons.arrow_drop_down, color: _textSecondary),
-                      items: _activities.map((activity) {
-                        final band = _bandForActivity(activity);
-                        return DropdownMenuItem<String>(
-                          value: activity,
-                          child: Text('$activity ($band)'),
-                        );
-                      }).toList(),
-                      onChanged: (value) {
-                        setState(() {
-                          _selectedActivity = value;
-                          if (value != null) {
-                            // Reset beat frequency to the goal's default when goal changes.
-                            _beatFrequencyHz =
-                                BinauralGoalFrequencies.defaultBeatHzForGoal(value);
-                          }
-                        });
-                      },
-                      validator: (value) {
-                        if (_goalEnabled && (value == null || value.isEmpty)) {
-                          return 'Please select a goal';
-                        }
-                        return null;
-                      },
+                    Row(
+                      children: [
+                        Expanded(
+                          child: DropdownButtonFormField<String>(
+                            value: _selectedActivity,
+                            isExpanded: true,
+                            decoration: _fieldDecoration(hint: 'Select your goal'),
+                            dropdownColor: _surface,
+                            style: const TextStyle(color: _textPrimary),
+                            icon: const Icon(Icons.arrow_drop_down, color: _textSecondary),
+                            items: _activities.map((activity) {
+                              final band = _bandForActivity(activity);
+                              return DropdownMenuItem<String>(
+                                value: activity,
+                                child: Text('$activity ($band)'),
+                              );
+                            }).toList(),
+                            onChanged: (value) async {
+                              if (_isPlayingBinauralPreview) {
+                                await _stopBinauralPreview();
+                              }
+                              setState(() {
+                                _selectedActivity = value;
+                                if (value != null) {
+                                  // Reset beat frequency to the goal's default when goal changes.
+                                  _beatFrequencyHz =
+                                      BinauralGoalFrequencies.defaultBeatHzForGoal(value);
+                                }
+                              });
+                            },
+                            validator: (value) {
+                              if (_goalEnabled && (value == null || value.isEmpty)) {
+                                return 'Please select a goal';
+                              }
+                              return null;
+                            },
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        _buildPreviewButton(
+                          enabled: _selectedActivity != null,
+                          isPlaying: _isPlayingBinauralPreview,
+                          isLoading: _isLoadingBinauralPreview,
+                          onPlay: _playBinauralPreview,
+                          onStop: _stopBinauralPreview,
+                          disabledBackgroundColor: _previewButtonDisabledBg,
+                        ),
+                      ],
                     ),
+                    if (_selectedActivity != null) ...[
+                      const SizedBox(height: 8),
+                      Text(
+                        _isLoadingBinauralPreview
+                            ? 'Generating preview…'
+                            : _isPlayingBinauralPreview
+                                ? 'Playing preview — tap stop when done'
+                                : 'Tap play to preview this tone',
+                        style: TextStyle(
+                          color: _isPlayingBinauralPreview
+                              ? const Color(0xFF7BAF8E)
+                              : _textSecondary,
+                          fontSize: 12,
+                        ),
+                      ),
+                    ],
                     if (_selectedActivity != null) ...[
                       const SizedBox(height: 16),
                       _buildFieldLabel('BEAT FREQUENCY (Try a range, because it varies by person)'),
