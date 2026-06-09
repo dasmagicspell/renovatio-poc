@@ -1945,7 +1945,7 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
             const SizedBox(height: 8),
             Text(
               'Carrier ${widget.session.binauralBaseFrequencyHz!.round()} Hz · '
-              'Beat ${widget.session.binauralBeatFrequencyHz} Hz · looped',
+              'Beat ${widget.session.binauralBeatFrequencyHz?.toStringAsFixed(1)} Hz',
               style: const TextStyle(
                 color: Color(0xFF7A7570),
                 fontSize: 13,
