@@ -1343,8 +1343,7 @@ class _NewSessionPageState extends State<NewSessionPage> {
         },
       );
 
-      final previewFilePath = await _downloadVoicePreviewToFile(selectedVoice.previewUrl!);
-      await _voicePreviewPlayer!.setFilePath(previewFilePath);
+      await _voicePreviewPlayer!.setUrl(selectedVoice.previewUrl!);
       await _voicePreviewPlayer!.play();
 
       if (mounted) {
@@ -1394,31 +1393,6 @@ class _NewSessionPageState extends State<NewSessionPage> {
   // Voice preview helpers
   // ---------------------------------------------------------------------------
 
-  /// Downloads a voice preview URL to a temp file and returns its path.
-  ///
-  /// Streaming a URL directly causes ExoPlayer on Android to enter offloaded /
-  /// direct audio mode, which can fail with DEAD_OBJECT (-32) when multiple
-  /// AudioTracks are open simultaneously. Playing from a local file keeps
-  /// ExoPlayer in normal buffered mode and avoids the issue.
-  Future<String> _downloadVoicePreviewToFile(String url) async {
-    final tmpDir = await getTemporaryDirectory();
-    final filePath = '${tmpDir.path}/voice_preview_${DateTime.now().millisecondsSinceEpoch}.mp3';
-    final file = File(filePath);
-
-    final client = HttpClient();
-    try {
-      final request = await client.getUrl(Uri.parse(url));
-      final response = await request.close();
-      final bytes = await response.fold<List<int>>(
-        <int>[],
-        (acc, chunk) => acc..addAll(chunk),
-      );
-      await file.writeAsBytes(bytes);
-    } finally {
-      client.close();
-    }
-    return filePath;
-  }
 
   /// Converts any audio file to a 44.1 kHz stereo WAV and returns the path.
   ///
@@ -1749,9 +1723,7 @@ class _NewSessionPageState extends State<NewSessionPage> {
                 });
               }
             });
-            final previewFilePath = await _downloadVoicePreviewToFile(_selectedVoice!.previewUrl!);
-            final wavPath = await _convertAudioToWav(previewFilePath, maxDurationSecs: 30);
-            await _voicePreviewPlayer!.setFilePath(wavPath ?? previewFilePath);
+            await _voicePreviewPlayer!.setUrl(_selectedVoice!.previewUrl!);
             await _voicePreviewPlayer!.setVolume(_narrationVolume);
             unawaited(_voicePreviewPlayer!.play());
             if (mounted) setState(() => _isPlayingVoicePreview = true);

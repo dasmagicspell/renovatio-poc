@@ -39,6 +39,8 @@ class _MainNavigationState extends State<MainNavigation> {
           _appVersion = info.version;
         });
       }
+    }).catchError((Object e) {
+      debugPrint('Could not load package info: $e');
     });
   }
 
