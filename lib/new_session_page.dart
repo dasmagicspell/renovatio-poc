@@ -206,7 +206,128 @@ class _NewSessionPageState extends State<NewSessionPage> {
       ),
     );
   }
-  
+
+  /// Updates [_beatFrequencyHz] and syncs [_selectedActivity] to the matching
+  /// brainwave band whenever the beat frequency crosses a band boundary.
+  void _setBeatFrequency(double value) {
+    _beatFrequencyHz = value.clamp(0.0, 100.0);
+    final band = BinauralGoalFrequencies.bandNameForHz(_beatFrequencyHz) ?? 'Delta';
+    final currentBand =
+        _selectedActivity != null ? _bandForActivity(_selectedActivity!) : null;
+    if (band != currentBand) {
+      _selectedActivity = _activityBand.entries
+          .firstWhere(
+            (e) => e.value == band,
+            orElse: () => _activityBand.entries.first,
+          )
+          .key;
+    }
+  }
+
+  /// Shows a dialog that lets the user type an exact frequency value.
+  /// [title] is the dialog heading, [current] is the pre-filled value,
+  /// [min]/[max] are the allowed range, and [decimals] controls formatting.
+  /// Returns the parsed value, or null if the user cancels.
+  Future<double?> _showFrequencyInputDialog({
+    required String title,
+    required double current,
+    required double min,
+    required double max,
+    int decimals = 1,
+  }) async {
+    final controller = TextEditingController(
+      text: decimals == 0 ? current.round().toString() : current.toStringAsFixed(decimals),
+    );
+    String? errorText;
+
+    return showDialog<double>(
+      context: context,
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (ctx, setDialogState) {
+            return AlertDialog(
+              backgroundColor: _surface,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+              title: Text(
+                title,
+                style: const TextStyle(
+                  color: _textPrimary,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 15,
+                ),
+              ),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Enter a value between $min and $max Hz',
+                    style: TextStyle(color: _textSecondary, fontSize: 13),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: controller,
+                    autofocus: true,
+                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                    style: const TextStyle(color: _textPrimary),
+                    decoration: InputDecoration(
+                      suffixText: 'Hz',
+                      suffixStyle: TextStyle(color: _textSecondary),
+                      errorText: errorText,
+                      enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(8),
+                        borderSide: const BorderSide(color: _border),
+                      ),
+                      focusedBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(8),
+                        borderSide: const BorderSide(color: _primary),
+                      ),
+                      errorBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(8),
+                        borderSide: const BorderSide(color: Colors.redAccent),
+                      ),
+                      focusedErrorBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(8),
+                        borderSide: const BorderSide(color: Colors.redAccent),
+                      ),
+                      filled: true,
+                      fillColor: _background,
+                    ),
+                    onSubmitted: (_) {
+                      final parsed = double.tryParse(controller.text);
+                      if (parsed == null || parsed < min || parsed > max) {
+                        setDialogState(() => errorText = 'Enter a number between $min and $max');
+                      } else {
+                        Navigator.of(ctx).pop(parsed);
+                      }
+                    },
+                  ),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(ctx).pop(),
+                  child: Text('Cancel', style: TextStyle(color: _textSecondary)),
+                ),
+                TextButton(
+                  onPressed: () {
+                    final parsed = double.tryParse(controller.text);
+                    if (parsed == null || parsed < min || parsed > max) {
+                      setDialogState(() => errorText = 'Enter a number between $min and $max');
+                    } else {
+                      Navigator.of(ctx).pop(parsed);
+                    }
+                  },
+                  child: const Text('Set', style: TextStyle(color: _primary)),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
   // Background music options
   final List<String> _backgroundMusicOptions = [
     'None',
@@ -2371,21 +2492,7 @@ class _NewSessionPageState extends State<NewSessionPage> {
                                 divisions: 1000,
                                 label: '${_beatFrequencyHz.toStringAsFixed(1)} Hz',
                                 onChanged: (value) {
-                                  setState(() {
-                                    _beatFrequencyHz = value;
-                                    final band = BinauralGoalFrequencies.bandNameForHz(value) ?? 'Delta';
-                                    final currentBand = _selectedActivity != null
-                                        ? _bandForActivity(_selectedActivity!)
-                                        : null;
-                                    if (band != currentBand) {
-                                      _selectedActivity = _activityBand.entries
-                                          .firstWhere(
-                                            (e) => e.value == band,
-                                            orElse: () => _activityBand.entries.first,
-                                          )
-                                          .key;
-                                    }
-                                  });
+                                  setState(() => _setBeatFrequency(value));
                                 },
                               ),
                             ),
@@ -2399,24 +2506,70 @@ class _NewSessionPageState extends State<NewSessionPage> {
                                     fontSize: 12,
                                   ),
                                 ),
-                                Container(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 10,
-                                    vertical: 4,
-                                  ),
-                                  decoration: BoxDecoration(
-                                    color: _primary.withOpacity(0.10),
-                                    borderRadius: BorderRadius.circular(20),
-                                  ),
-                                  child: Text(
-                                    '${_beatFrequencyHz.toStringAsFixed(1)} Hz · '
-                                    '${_bandForActivity(_selectedActivity!)}',
-                                    style: const TextStyle(
-                                      color: _primary,
-                                      fontSize: 13,
-                                      fontWeight: FontWeight.bold,
+                                Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    _buildFreqStepButton(
+                                      icon: Icons.remove,
+                                      onTap: () => setState(
+                                        () => _setBeatFrequency(_beatFrequencyHz - 0.1),
+                                      ),
                                     ),
-                                  ),
+                                    const SizedBox(width: 6),
+                                    GestureDetector(
+                                      onTap: () async {
+                                        final v = await _showFrequencyInputDialog(
+                                          title: 'Beat Frequency',
+                                          current: _beatFrequencyHz,
+                                          min: 0.0,
+                                          max: 100.0,
+                                          decimals: 1,
+                                        );
+                                        if (v != null) setState(() => _setBeatFrequency(v));
+                                      },
+                                      child: Container(
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 10,
+                                          vertical: 4,
+                                        ),
+                                        decoration: BoxDecoration(
+                                          color: _primary.withOpacity(0.10),
+                                          borderRadius: BorderRadius.circular(20),
+                                          border: Border.all(
+                                            color: _primary.withOpacity(0.25),
+                                            width: 1,
+                                          ),
+                                        ),
+                                        child: Row(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            Text(
+                                              '${_beatFrequencyHz.toStringAsFixed(1)} Hz · '
+                                              '${_bandForActivity(_selectedActivity!)}',
+                                              style: const TextStyle(
+                                                color: _primary,
+                                                fontSize: 13,
+                                                fontWeight: FontWeight.bold,
+                                              ),
+                                            ),
+                                            const SizedBox(width: 4),
+                                            const Icon(
+                                              Icons.edit,
+                                              color: _primary,
+                                              size: 11,
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ),
+                                    const SizedBox(width: 6),
+                                    _buildFreqStepButton(
+                                      icon: Icons.add,
+                                      onTap: () => setState(
+                                        () => _setBeatFrequency(_beatFrequencyHz + 0.1),
+                                      ),
+                                    ),
+                                  ],
                                 ),
                                 Text(
                                   '100 Hz',
@@ -2460,13 +2613,75 @@ class _NewSessionPageState extends State<NewSessionPage> {
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
                         Text('100 Hz', style: TextStyle(color: _textSecondary, fontSize: 12)),
-                        Text(
-                          '${_baseFrequencyHz.round()} Hz',
-                          style: const TextStyle(
-                            color: _textPrimary,
-                            fontSize: 14,
-                            fontWeight: FontWeight.bold,
-                          ),
+                        Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            _buildFreqStepButton(
+                              icon: Icons.remove,
+                              onTap: () => setState(() {
+                                _baseFrequencyHz =
+                                    (_baseFrequencyHz - 1.0).clamp(100.0, 1500.0);
+                              }),
+                            ),
+                            const SizedBox(width: 6),
+                            GestureDetector(
+                              onTap: () async {
+                                final v = await _showFrequencyInputDialog(
+                                  title: 'Base (Carrier) Frequency',
+                                  current: _baseFrequencyHz,
+                                  min: 100.0,
+                                  max: 1500.0,
+                                  decimals: 0,
+                                );
+                                if (v != null) {
+                                  setState(() {
+                                    _baseFrequencyHz = v.clamp(100.0, 1500.0);
+                                  });
+                                }
+                              },
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 10,
+                                  vertical: 4,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: _primary.withOpacity(0.10),
+                                  borderRadius: BorderRadius.circular(20),
+                                  border: Border.all(
+                                    color: _primary.withOpacity(0.25),
+                                    width: 1,
+                                  ),
+                                ),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Text(
+                                      '${_baseFrequencyHz.round()} Hz',
+                                      style: const TextStyle(
+                                        color: _primary,
+                                        fontSize: 14,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                    const SizedBox(width: 4),
+                                    const Icon(
+                                      Icons.edit,
+                                      color: _primary,
+                                      size: 11,
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 6),
+                            _buildFreqStepButton(
+                              icon: Icons.add,
+                              onTap: () => setState(() {
+                                _baseFrequencyHz =
+                                    (_baseFrequencyHz + 1.0).clamp(100.0, 1500.0);
+                              }),
+                            ),
+                          ],
                         ),
                         Text('1500 Hz', style: TextStyle(color: _textSecondary, fontSize: 12)),
                       ],
@@ -3593,6 +3808,26 @@ class _NewSessionPageState extends State<NewSessionPage> {
         fontSize: 13,
         fontWeight: FontWeight.w600,
         letterSpacing: 0.3,
+      ),
+    );
+  }
+
+  /// Small circular −/+ button used beside frequency value badges.
+  Widget _buildFreqStepButton({
+    required IconData icon,
+    required VoidCallback onTap,
+  }) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        width: 28,
+        height: 28,
+        decoration: BoxDecoration(
+          color: _primary.withOpacity(0.10),
+          shape: BoxShape.circle,
+          border: Border.all(color: _primary.withOpacity(0.25), width: 1),
+        ),
+        child: Icon(icon, color: _primary, size: 16),
       ),
     );
   }
