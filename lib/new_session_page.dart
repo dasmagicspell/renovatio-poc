@@ -1351,6 +1351,7 @@ class _NewSessionPageState extends State<NewSessionPage> {
       );
 
       await _voicePreviewPlayer!.setUrl(selectedVoice.previewUrl!);
+      await _voicePreviewPlayer!.setVolume(_narrationVolume);
       await _voicePreviewPlayer!.play();
 
       if (mounted) {
