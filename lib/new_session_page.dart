@@ -2115,9 +2115,12 @@ class _NewSessionPageState extends State<NewSessionPage> {
           onPressed: _handleLeaveRequest,
         ),
       ),
-      body: Form(
-        key: _formKey,
-        child: SingleChildScrollView(
+      body: GestureDetector(
+        onTap: () => FocusScope.of(context).unfocus(),
+        behavior: HitTestBehavior.opaque,
+        child: Form(
+          key: _formKey,
+          child: SingleChildScrollView(
           padding: const EdgeInsets.all(20.0),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -3296,6 +3299,7 @@ class _NewSessionPageState extends State<NewSessionPage> {
             ],
           ),
         ),
+      ),
       ),
     ),
     );
