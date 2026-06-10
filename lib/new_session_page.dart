@@ -611,6 +611,7 @@ class _NewSessionPageState extends State<NewSessionPage> {
       }
 
       await _narrationFilePreviewPlayer!.setFilePath(filePath);
+      await _narrationFilePreviewPlayer!.setVolume(_narrationVolume);
       await _narrationFilePreviewPlayer!.play();
       if (mounted) setState(() => _isPlayingNarrationFile = true);
     } catch (e) {
@@ -1144,6 +1145,7 @@ class _NewSessionPageState extends State<NewSessionPage> {
         await _backgroundMusicPreviewPlayer!.setAsset(assetPath);
       }
 
+      await _backgroundMusicPreviewPlayer!.setVolume(_musicVolume);
       await _backgroundMusicPreviewPlayer!.play();
       if (mounted) setState(() => _isPlayingBackgroundMusic = true);
     } catch (e) {
@@ -1265,6 +1267,7 @@ class _NewSessionPageState extends State<NewSessionPage> {
         await _backgroundAmbiencePreviewPlayer!.setAsset(assetPath);
       }
 
+      await _backgroundAmbiencePreviewPlayer!.setVolume(_ambienceVolume);
       await _backgroundAmbiencePreviewPlayer!.play();
       
       if (mounted) {
