@@ -1653,6 +1653,62 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
   bool get _isAnyAudioLoading {
     return _isLoading || _isLoadingBackground || _isLoadingAmbience || _isLoadingNarration || _isGeneratingNarration;
   }
+
+  Future<bool> _confirmLeaveWhileGeneratingNarration() async {
+    final leave = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFFEDEAE6),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Row(
+          children: [
+            Icon(Icons.warning_amber_rounded, color: Color(0xFF2F6F65), size: 22),
+            SizedBox(width: 10),
+            Text(
+              'Narration still generating',
+              style: TextStyle(
+                color: Color(0xFF2F2F2F),
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ],
+        ),
+        content: const Text(
+          'Narration audio is still being generated. If you leave now, '
+          'generation will stop and you will need to generate it again the '
+          'next time you open this soundscape.',
+          style: TextStyle(color: Color(0xFF5C574F), fontSize: 14, height: 1.5),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text(
+              'Stay',
+              style: TextStyle(color: Color(0xFF2F6F65)),
+            ),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            style: TextButton.styleFrom(foregroundColor: Colors.red),
+            child: const Text('Leave anyway'),
+          ),
+        ],
+      ),
+    );
+    return leave == true;
+  }
+
+  Future<void> _handleBackNavigation() async {
+    if (!_isGeneratingNarration) {
+      Navigator.of(context).pop();
+      return;
+    }
+    final leave = await _confirmLeaveWhileGeneratingNarration();
+    if (leave && mounted) {
+      Navigator.of(context).pop();
+    }
+  }
   
   /// Generate a hash from narration text for filename
   String _getNarrationHash(String narrationText) {
@@ -1664,7 +1720,13 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
+    return PopScope(
+      canPop: !_isGeneratingNarration,
+      onPopInvokedWithResult: (didPop, result) async {
+        if (didPop) return;
+        await _handleBackNavigation();
+      },
+      child: Scaffold(
       backgroundColor: const Color(0xFFF3E4D7),
       appBar: AppBar(
         title: Text(
@@ -1676,7 +1738,7 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
         surfaceTintColor: Colors.transparent,
         leading: IconButton(
           icon: const Icon(Icons.arrow_back, color: Color(0xFF2F2F2F)),
-          onPressed: () => Navigator.of(context).pop(),
+          onPressed: _handleBackNavigation,
         ),
       ),
       body: Stack(
@@ -1871,6 +1933,7 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
             ),
         ],
       ),
+    ),
     );
   }
   
