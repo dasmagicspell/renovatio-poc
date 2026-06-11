@@ -3439,37 +3439,35 @@ class _NewSessionPageState extends State<NewSessionPage> {
                         ),
                       ),
                     ),
-                    if (_isPreviewingAll) ...[
-                      const SizedBox(height: 10),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          _buildLayerIndicator(
-                            icon: Icons.headphones,
-                            label: 'Binaural',
-                            active: _binauralPreviewPlayer != null,
-                          ),
-                          const SizedBox(width: 12),
-                          _buildLayerIndicator(
-                            icon: Icons.music_note,
-                            label: 'Music',
-                            active: _isPlayingBackgroundMusic,
-                          ),
-                          const SizedBox(width: 12),
-                          _buildLayerIndicator(
-                            icon: Icons.park,
-                            label: 'Ambience',
-                            active: _isPlayingBackgroundAmbience,
-                          ),
-                          const SizedBox(width: 12),
-                          _buildLayerIndicator(
-                            icon: Icons.record_voice_over,
-                            label: 'Voice',
-                            active: _isPlayingVoicePreview,
-                          ),
-                        ],
-                      ),
-                    ],
+                    const SizedBox(height: 10),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        _buildLayerIndicator(
+                          icon: Icons.headphones,
+                          label: 'Binaural',
+                          active: _goalEnabled,
+                        ),
+                        const SizedBox(width: 12),
+                        _buildLayerIndicator(
+                          icon: Icons.music_note,
+                          label: 'Music',
+                          active: _musicEnabled,
+                        ),
+                        const SizedBox(width: 12),
+                        _buildLayerIndicator(
+                          icon: Icons.park,
+                          label: 'Ambience',
+                          active: _ambienceEnabled,
+                        ),
+                        const SizedBox(width: 12),
+                        _buildLayerIndicator(
+                          icon: Icons.record_voice_over,
+                          label: 'Voice',
+                          active: _narrationEnabled,
+                        ),
+                      ],
+                    ),
                   ],
                 ),
               ),
