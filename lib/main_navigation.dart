@@ -6,6 +6,7 @@ import 'sessions_page.dart';
 import 'audio_generation_page.dart';
 import 'profile_page.dart';
 import 'help_support_page.dart';
+import 'settings_page.dart';
 
 class MainNavigation extends StatefulWidget {
   const MainNavigation({super.key});
@@ -22,6 +23,7 @@ class _MainNavigationState extends State<MainNavigation> {
     const SessionsPage(),
     const ProfilePage(),
     const HelpSupportPage(),
+    const SettingsPage(),
     // const AudioPlayerPage(),
     // const AudioGenerationPage(),
     // const HealthDataPage(),
@@ -31,6 +33,7 @@ class _MainNavigationState extends State<MainNavigation> {
     'Wellness Soundscapes',
     'Profile',
     'Help & Support',
+    'Settings',
     // 'Audio Player',
     // 'Audio Generation',
     // 'Health Data',
@@ -165,7 +168,7 @@ class _MainNavigationState extends State<MainNavigation> {
                 
                 _buildDrawerItem(1, 'Profile', Icons.person),
                 _buildDrawerItem(2, 'Help & Support', Icons.help),
-                _buildDrawerItem(-1, 'Settings', Icons.settings, isDisabled: true),
+                _buildDrawerItem(3, 'Settings', Icons.settings),
               ],
             ),
           ),

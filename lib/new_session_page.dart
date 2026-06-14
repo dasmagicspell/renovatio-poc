@@ -22,6 +22,9 @@ import 'services/user_ambience_library_service.dart';
 import 'services/user_narration_library_service.dart';
 import 'chatgpt_service.dart';
 import 'constants/default_narration_script.dart';
+import 'constants/soundscape_options.dart';
+import 'models/soundscape_defaults.dart';
+import 'services/soundscape_defaults_service.dart';
 import 'session_details_page.dart';
 
 class NewSessionPage extends StatefulWidget {
@@ -103,6 +106,9 @@ class _NewSessionPageState extends State<NewSessionPage> {
   double _ambienceVolume = 0.1;
   double _narrationVolume = 0.35;
 
+  SoundscapeDefaults _loadedDefaults = SoundscapeDefaults.standard;
+  String? _pendingDefaultVoiceId;
+
   // Full soundscape preview state
   bool _isPreviewingAll = false;
   bool _isLoadingFullPreview = false;
@@ -123,24 +129,10 @@ class _NewSessionPageState extends State<NewSessionPage> {
   static const _previewButtonDisabledBg = Color(0xFFC5BDB6);
   
   // Activity options mapped to their brainwave band name.
-  static const Map<String, String> _activityBand = {
-    'Sleep': 'Delta',
-    'Pain Relief': 'Delta',
-    'Meditate': 'Theta',
-    'Anxiety Relief': 'Theta',
-    'Creativity': 'Theta',
-    'Relax': 'Alpha',
-    'Study': 'Alpha',
-    'Light Focus': 'Alpha',
-    'Exercise': 'Beta',
-    'Focus': 'Beta',
-    'Energy Boost': 'Gamma',
-  };
-
-  List<String> get _activities => _activityBand.keys.toList();
+  List<String> get _activities => SoundscapeOptions.activities;
 
   String _bandForActivity(String activity) =>
-      _activityBand[activity] ?? 'Alpha';
+      SoundscapeOptions.bandForActivity(activity);
 
   // ── Base-frequency range notes ──────────────────────────────────────────────
   static const List<({double min, double max, String title, String body})>
@@ -215,10 +207,10 @@ class _NewSessionPageState extends State<NewSessionPage> {
     final currentBand =
         _selectedActivity != null ? _bandForActivity(_selectedActivity!) : null;
     if (band != currentBand) {
-      _selectedActivity = _activityBand.entries
+      _selectedActivity = SoundscapeOptions.activityBand.entries
           .firstWhere(
             (e) => e.value == band,
-            orElse: () => _activityBand.entries.first,
+            orElse: () => SoundscapeOptions.activityBand.entries.first,
           )
           .key;
     }
@@ -329,49 +321,61 @@ class _NewSessionPageState extends State<NewSessionPage> {
   }
 
   // Background music options
-  final List<String> _backgroundMusicOptions = [
-    'None',
-    'Classical Music',
-    'Piano Instrumental',
-    'Acoustic Guitar',
-  ];
-  
+  List<String> get _backgroundMusicOptions => SoundscapeOptions.bundledMusic;
+
   // Background ambience options
-  final List<String> _backgroundAmbienceOptions = [
-    'None',
-    'Forest',
-    'Ocean Waves',
-    'Rain',
-    'Birds Chirping',
-  ];
+  List<String> get _backgroundAmbienceOptions => SoundscapeOptions.bundledAmbience;
   
   @override
   void initState() {
     super.initState();
     _sessionNameController.addListener(_onFormContentChanged);
     _narrationTextController.addListener(_onFormContentChanged);
+    _loadDefaults();
     _loadVoices();
     _loadUserMusicTracks();
     _loadUserAmbienceTracks();
     _loadUserNarrationTracks();
   }
 
+  Future<void> _loadDefaults() async {
+    final defaults = await SoundscapeDefaultsService.getDefaults();
+    if (!mounted) return;
+
+    setState(() {
+      _loadedDefaults = defaults;
+      _selectedActivity = defaults.activity;
+      _durationMinutes = defaults.durationMinutes;
+      _binauralVolume = defaults.binauralVolume;
+      _musicVolume = defaults.musicVolume;
+      _ambienceVolume = defaults.ambienceVolume;
+      _narrationVolume = defaults.narrationVolume;
+      _selectedBackgroundMusic = defaults.backgroundMusic;
+      _selectedBackgroundAmbience = defaults.backgroundAmbience;
+      _pendingDefaultVoiceId = defaults.narrationVoiceId;
+      if (defaults.activity != null) {
+        _baseFrequencyHz =
+            BinauralGoalFrequencies.defaultBaseHzForGoal(defaults.activity!);
+        _beatFrequencyHz =
+            BinauralGoalFrequencies.defaultBeatHzForGoal(defaults.activity!);
+      }
+    });
+  }
+
   void _onFormContentChanged() {
     if (mounted) setState(() {});
   }
 
-  /// True when the user has changed anything from the initial empty form.
+  /// True when the user has changed anything from the loaded defaults.
   bool get _hasUnsavedChanges {
     if (_sessionNameController.text.trim().isNotEmpty) return true;
     if (_narrationTextController.text.trim() != kDefaultNarrationScript.trim()) return true;
-    if (_selectedActivity != null) return true;
-    if (_durationMinutes != 15.0) return true;
-    if (_selectedBackgroundMusic != null &&
-        _selectedBackgroundMusic != 'None') {
+    if (_selectedActivity != _loadedDefaults.activity) return true;
+    if ((_durationMinutes - _loadedDefaults.durationMinutes).abs() > 0.001) {
       return true;
     }
-    if (_selectedBackgroundAmbience != null &&
-        _selectedBackgroundAmbience != 'None') {
+    if (_selectedBackgroundMusic != _loadedDefaults.backgroundMusic) return true;
+    if (_selectedBackgroundAmbience != _loadedDefaults.backgroundAmbience) {
       return true;
     }
     if (_selectedUserNarration != null &&
@@ -379,17 +383,24 @@ class _NewSessionPageState extends State<NewSessionPage> {
         _selectedUserNarration != '__narration_divider__') {
       return true;
     }
-    if (_selectedVoice != null) return true;
+    final loadedVoiceId = _loadedDefaults.narrationVoiceId;
+    if (_selectedVoice?.voiceId != loadedVoiceId) return true;
     if (!_goalEnabled ||
         !_musicEnabled ||
         !_ambienceEnabled ||
         !_narrationEnabled) {
       return true;
     }
-    if (_binauralVolume != 0.8) return true;
-    if (_musicVolume != 0.1) return true;
-    if (_ambienceVolume != 0.1) return true;
-    if (_narrationVolume != 0.35) return true;
+    if ((_binauralVolume - _loadedDefaults.binauralVolume).abs() > 0.001) {
+      return true;
+    }
+    if ((_musicVolume - _loadedDefaults.musicVolume).abs() > 0.001) return true;
+    if ((_ambienceVolume - _loadedDefaults.ambienceVolume).abs() > 0.001) {
+      return true;
+    }
+    if ((_narrationVolume - _loadedDefaults.narrationVolume).abs() > 0.001) {
+      return true;
+    }
     if (_selectedActivity != null) {
       final defaultBase = BinauralGoalFrequencies.defaultBaseHzForGoal(
         _selectedActivity!,
@@ -476,6 +487,13 @@ class _NewSessionPageState extends State<NewSessionPage> {
         setState(() {
           _availableVoices = voices;
           _isLoadingVoices = false;
+          if (_pendingDefaultVoiceId != null) {
+            _selectedVoice = voices
+                .where((v) => v.voiceId == _pendingDefaultVoiceId)
+                .cast<ElevenLabsVoice?>()
+                .firstOrNull;
+            _pendingDefaultVoiceId = null;
+          }
         });
       }
     } catch (e) {
@@ -490,12 +508,35 @@ class _NewSessionPageState extends State<NewSessionPage> {
 
   Future<void> _loadUserMusicTracks() async {
     final tracks = await UserMusicLibraryService.getAllTracks();
-    if (mounted) setState(() => _userMusicTracks = tracks);
+    if (!mounted) return;
+    setState(() {
+      _userMusicTracks = tracks;
+      if (_selectedBackgroundMusic != null &&
+          UserMusicLibraryService.isUserTrackKey(_selectedBackgroundMusic!)) {
+        final id =
+            UserMusicLibraryService.trackIdFromKey(_selectedBackgroundMusic!);
+        if (id == null || !tracks.any((t) => t.id == id)) {
+          _selectedBackgroundMusic = null;
+        }
+      }
+    });
   }
 
   Future<void> _loadUserAmbienceTracks() async {
     final tracks = await UserAmbienceLibraryService.getAllTracks();
-    if (mounted) setState(() => _userAmbienceTracks = tracks);
+    if (!mounted) return;
+    setState(() {
+      _userAmbienceTracks = tracks;
+      if (_selectedBackgroundAmbience != null &&
+          UserAmbienceLibraryService.isUserTrackKey(_selectedBackgroundAmbience!)) {
+        final id = UserAmbienceLibraryService.trackIdFromKey(
+          _selectedBackgroundAmbience!,
+        );
+        if (id == null || !tracks.any((t) => t.id == id)) {
+          _selectedBackgroundAmbience = null;
+        }
+      }
+    });
   }
 
   Future<void> _loadUserNarrationTracks() async {
