@@ -150,28 +150,28 @@ class _NewSessionPageState extends State<NewSessionPage> {
       max: 200,
       title: '100–200 Hz — Deep & Rumbling',
       body:
-          'These are low, bass-heavy tones that feel thick and grounding. Lower carrier frequencies resonate more physically and forcefully, which some users find deeply immersive. Others may find pure tones in this range uncomfortable over long sessions. Best suited for grounding and deep relaxation.\n\nNotable frequencies:\n• 126.22 Hz — associated with the Sun, used for deep meditation\n• 136.1 Hz — the "OM frequency," linked to Earth\'s resonance, used for grounding and anxiety relief\n• 194.18 Hz — associated with Earth\'s day cycle, used for sleep',
+          'These are low, bass-heavy tones that feel thick and grounding. Lower carrier frequencies resonate more physically and forcefully, which some users find deeply immersive. Others may find pure tones in this range uncomfortable over long sessions.\n\nThis app\'s Sleep, Pain Relief, Meditation, Anxiety Relief, and Creativity presets intentionally default to this range, since lower carriers feel more sedating and grounding.\n\nNote: tones this low may sound quiet or distorted on phone speakers — use headphones for the full effect.\n\nNotable frequencies:\n• 126.22 Hz — traditionally associated with the Sun in sound-meditation systems\n• 136.1 Hz — known as the "OM frequency" in sound-meditation traditions\n• 194.18 Hz — traditionally linked to Earth\'s day cycle in the same systems',
     ),
     (
       min: 200,
       max: 600,
       title: '200–600 Hz — The Sweet Spot (Recommended)',
       body:
-          'This is where the binaural beat experience is most effective. Research suggests carrier tones in this range produce the best beat perception and are most pleasant to listen to. The tone feels balanced — not too heavy, not too sharp. This is the range most scientific studies use, and where most intentionally-designed presets land.\n\nNotable frequencies:\n• 432 Hz — popular Solfeggio frequency, widely used in sound therapy\n• 528 Hz — the "Miracle Tone," associated with transformation and healing',
+          'This is where the binaural beat experience tends to work best. Beat perception is strongest with carriers roughly between 200 and 500 Hz, and the tone feels balanced — not too heavy, not too sharp. Most research studies and most of this app\'s focus and energy presets use carriers in this range.\n\nNotable frequencies:\n• 432 Hz — alternative concert-pitch tuning, popular in relaxation music\n• 528 Hz — one of the Solfeggio frequencies, popular in sound-therapy traditions',
     ),
     (
       min: 600,
       max: 1000,
       title: '600–1000 Hz — Bright & Clear',
       body:
-          'The tone becomes noticeably brighter and more present. Still within the effective range for binaural beat perception, though the sound is lighter and less grounding than lower ranges. Some users prefer this for focus and productivity tasks.',
+          'The tone becomes noticeably brighter and more present. Binaural beat perception gradually weakens as the carrier rises through this range, though many listeners still perceive the effect. The sound is lighter and less grounding than lower ranges, and some users prefer it for focus and productivity tasks.',
     ),
     (
       min: 1000,
       max: 1500,
       title: '1000–1500 Hz — High-Pitched & Thin',
       body:
-          'As you approach and exceed 1000 Hz, the binaural effect weakens noticeably. The brain has a harder time processing the phase difference between the two ears at this range, reducing entrainment effectiveness. The tone sounds sharp and thin. This range may still create an interesting auditory texture but is considered less effective for brainwave entrainment.',
+          'As you approach and exceed 1000 Hz, the binaural effect weakens noticeably. The brain has a harder time processing the phase difference between the two ears at this range. The tone sounds sharp and thin. This range may still create an interesting auditory texture but is the least effective for binaural beat listening.',
     ),
   ];
 
@@ -390,8 +390,11 @@ class _NewSessionPageState extends State<NewSessionPage> {
     if (_musicVolume != 0.1) return true;
     if (_ambienceVolume != 0.1) return true;
     if (_narrationVolume != 0.35) return true;
-    if ((_baseFrequencyHz - 200.0).abs() > 0.001) return true;
     if (_selectedActivity != null) {
+      final defaultBase = BinauralGoalFrequencies.defaultBaseHzForGoal(
+        _selectedActivity!,
+      );
+      if ((_baseFrequencyHz - defaultBase).abs() > 0.001) return true;
       final defaultBeat = BinauralGoalFrequencies.defaultBeatHzForGoal(
         _selectedActivity!,
       );
@@ -2426,7 +2429,9 @@ class _NewSessionPageState extends State<NewSessionPage> {
                               setState(() {
                                 _selectedActivity = value;
                                 if (value != null) {
-                                  // Reset beat frequency to the goal's default when goal changes.
+                                  // Reset frequencies to the goal's defaults when goal changes.
+                                  _baseFrequencyHz =
+                                      BinauralGoalFrequencies.defaultBaseHzForGoal(value);
                                   _beatFrequencyHz =
                                       BinauralGoalFrequencies.defaultBeatHzForGoal(value);
                                 }

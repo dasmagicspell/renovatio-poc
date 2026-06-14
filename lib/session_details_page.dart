@@ -3071,7 +3071,7 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
                 ),
                 const SizedBox(height: 20),
                 const Text(
-                  'This feature is available to premium members. '
+                  'This is a premium feature. '
                   'We\'d love to have you on board — reach out to us and '
                   'we\'ll take care of the rest.',
                   textAlign: TextAlign.center,

@@ -18,6 +18,23 @@ class BandRange {
 class BinauralGoalFrequencies {
   BinauralGoalFrequencies._();
 
+  // Default carrier (base) Hz used when a goal is first selected.
+  static const Map<String, double> _goalDefaultBaseHz = {
+    'Deep Sleep': 100.0,
+    'Sleep': 100.0,
+    'Pain Relief': 120.0,
+    'Deep Meditation': 150.0,
+    'Meditate': 150.0,
+    'Anxiety Relief': 160.0,
+    'Creativity': 180.0,
+    'Relax': 200.0,
+    'Study': 220.0,
+    'Light Focus': 240.0,
+    'Focus': 280.0,
+    'Exercise': 300.0,
+    'Energy Boost': 340.0,
+  };
+
   // Default beat Hz used when a goal is first selected.
   static const Map<String, double> _goalDefaultHz = {
     'Deep Sleep': 1.0,
@@ -58,6 +75,10 @@ class BinauralGoalFrequencies {
     'Beta':  BandRange(name: 'Beta',  minHz: 13.0, maxHz: 30.0),
     'Gamma': BandRange(name: 'Gamma', minHz: 30.0, maxHz: 100.0),
   };
+
+  /// Default carrier (base) frequency for the given goal (used when goal is selected).
+  static double defaultBaseHzForGoal(String goal) =>
+      _goalDefaultBaseHz[goal] ?? 200.0;
 
   /// Default beat frequency for the given goal (used when goal is first selected).
   static double defaultBeatHzForGoal(String goal) =>
