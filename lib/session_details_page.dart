@@ -879,16 +879,24 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
         if (mounted) setState(() => _isGeneratingNarration = false);
       }
 
-      if (narrationResult == null || narrationResult.segmentPaths.isEmpty) {
-        print('❌ No narration segments were generated');
+      final mergedPath = narrationResult?.mergedPath;
+      if (mergedPath == null) {
+        print('❌ Narration merged file was not created');
         setState(() => _isLoadingNarration = false);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Narration audio is unavailable.'),
+              backgroundColor: Colors.orange,
+              duration: Duration(seconds: 4),
+            ),
+          );
+        }
         return;
       }
 
-      // Store the merged path so the export system can include narration.
-      _narrationPath = narrationResult.mergedPath;
-
-      await _initializeNarrationPlayer(narrationResult.segmentPaths);
+      _narrationPath = mergedPath;
+      await _initializeNarrationPlayer(mergedPath);
     } catch (e) {
       setState(() {
         _isLoadingNarration = false;
@@ -955,20 +963,13 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
     }
   }
 
-  /// Initialises the narration [AudioPlayer] from an ordered list of segment
-  /// file paths (text chunks and silence files) using [ConcatenatingAudioSource].
-  Future<void> _initializeNarrationPlayer(List<String> segmentPaths) async {
+  /// Initialises the narration [AudioPlayer] from the stitched merged MP3.
+  Future<void> _initializeNarrationPlayer(String filePath) async {
     try {
       final player = AudioPlayer();
 
-      final source = ConcatenatingAudioSource(
-        children: segmentPaths
-            .map((path) => AudioSource.file(path))
-            .toList(),
-      );
-
-      await player.setAudioSource(source);
-      await player.setLoopMode(LoopMode.all);
+      await player.setFilePath(filePath);
+      await player.setLoopMode(LoopMode.one);
       await player.setVolume(_narrationVolume);
       await player.setSpeed(_narrationSpeed);
 
@@ -983,11 +984,9 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
       setState(() {
         _narrationPlayer = player;
         _isLoadingNarration = false;
-        // _narrationPath is intentionally left null for segmented narration;
-        // export support for multi-segment narration will be added separately.
       });
 
-      print('✅ Narration loaded (${segmentPaths.length} segments)');
+      print('✅ Narration loaded: $filePath');
     } catch (e) {
       setState(() => _isLoadingNarration = false);
       print('Error initializing narration player: $e');

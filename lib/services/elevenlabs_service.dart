@@ -8,10 +8,10 @@ import 'ffmpeg_executor.dart';
 
 /// Result returned by [ElevenLabsService.generateSegmentedNarration].
 class NarrationGenerationResult {
-  /// Ordered segment file paths for [ConcatenatingAudioSource] playback.
+  /// Ordered segment file paths used during generation and stitching.
   final List<String> segmentPaths;
 
-  /// Single merged MP3 file for export. Null if ffmpeg stitching failed.
+  /// Single merged MP3 file for playback and export. Null if ffmpeg stitching failed.
   final String? mergedPath;
 
   const NarrationGenerationResult({
@@ -25,6 +25,9 @@ class NarrationGenerationResult {
 class ElevenLabsService {
   static const String _baseUrl = 'https://api.elevenlabs.io/v1';
   static String? _apiKey;
+
+  /// Bump when stitched merge format changes so cached merges are rebuilt.
+  static const int _narrationManifestVersion = 2;
   
   static final Dio _dio = Dio();
   
@@ -336,8 +339,8 @@ class ElevenLabsService {
   /// [voiceId]. Subsequent calls with the same key return the cached files
   /// without hitting the API.
   ///
-  /// Returns a [NarrationGenerationResult] with segment paths for playback and
-  /// a merged MP3 path for export, or `null` if generation fails entirely.
+  /// Returns a [NarrationGenerationResult] with segment paths and a merged MP3
+  /// path for playback/export, or `null` if generation fails entirely.
   static Future<NarrationGenerationResult?> generateSegmentedNarration({
     required String narrationScript,
     required String sessionId,
@@ -367,12 +370,38 @@ class ElevenLabsService {
               await Future.wait(cachedPaths.map((p) => File(p).exists()));
           if (existChecks.every((e) => e)) {
             final cachedMerged = manifest['merged'] as String?;
+            final manifestVersion = manifest['version'] as int? ?? 1;
             final mergedExists = cachedMerged != null &&
                 await File(cachedMerged).exists();
-            print('✅ Narration: using ${cachedPaths.length} cached segments');
+
+            if (mergedExists && manifestVersion >= _narrationManifestVersion) {
+              print(
+                '✅ Narration: using ${cachedPaths.length} cached segments '
+                'and merged file',
+              );
+              return NarrationGenerationResult(
+                segmentPaths: cachedPaths,
+                mergedPath: cachedMerged,
+              );
+            }
+
+            print(
+              '🔄 Narration: re-stitching ${cachedPaths.length} cached segments',
+            );
+            final mergedPath = await _stitchSegments(
+              segmentPaths: cachedPaths,
+              outputPath: '${segmentDir.path}/merged.mp3',
+            );
+            await manifestFile.writeAsString(
+              json.encode({
+                'version': _narrationManifestVersion,
+                'segments': cachedPaths,
+                if (mergedPath != null) 'merged': mergedPath,
+              }),
+            );
             return NarrationGenerationResult(
               segmentPaths: cachedPaths,
-              mergedPath: mergedExists ? cachedMerged : null,
+              mergedPath: mergedPath,
             );
           }
         } catch (_) {
@@ -435,7 +464,7 @@ class ElevenLabsService {
       // Persist manifest (includes merged path if stitching succeeded).
       await manifestFile.writeAsString(
         json.encode({
-          'version': 1,
+          'version': _narrationManifestVersion,
           'segments': orderedPaths,
           if (mergedPath != null) 'merged': mergedPath,
         }),
@@ -504,27 +533,47 @@ class ElevenLabsService {
     }
   }
 
-  /// Concatenates [segmentPaths] in order into a single MP3 at [outputPath]
-  /// using ffmpeg's concat demuxer. Returns [outputPath] on success, null on failure.
+  /// Concatenates [segmentPaths] in order into a single MP3 at [outputPath].
+  ///
+  /// Uses the concat audio filter (not the concat demuxer) so mixed MP3 speech
+  /// and WAV silence segments keep their full duration.
   static Future<String?> _stitchSegments({
     required List<String> segmentPaths,
     required String outputPath,
   }) async {
+    if (segmentPaths.isEmpty) return null;
+
     try {
-      // The concat demuxer requires a text file listing the inputs.
-      final concatListPath = '${outputPath}_concat_list.txt';
-      final concatContent = segmentPaths
-          .map((p) => "file '${p.replaceAll("'", r"\'")}'")
-          .join('\n');
-      await File(concatListPath).writeAsString(concatContent);
+      final quotedPaths = segmentPaths
+          .map((path) => '"${path.replaceAll('"', r'\"')}"')
+          .toList();
 
-      final command =
-          '-f concat -safe 0 -i "$concatListPath" -c:a libmp3lame -q:a 4 "$outputPath"';
+      final String command;
+      if (segmentPaths.length == 1) {
+        command =
+            '-y -i ${quotedPaths.first} -c:a libmp3lame -q:a 4 "$outputPath"';
+      } else {
+        final inputArgs = quotedPaths.map((path) => '-i $path').join(' ');
+        final normalizeParts = <String>[];
+        final concatLabels = <String>[];
+        for (int i = 0; i < segmentPaths.length; i++) {
+          final label = 'a$i';
+          normalizeParts.add(
+            '[$i:a]aformat=sample_rates=44100:channel_layouts=mono,'
+            'asetpts=PTS-STARTPTS[$label]',
+          );
+          concatLabels.add('[$label]');
+        }
+        final n = segmentPaths.length;
+        final filter =
+            '${normalizeParts.join(';')};'
+            '${concatLabels.join()}concat=n=$n:v=0:a=1[aout]';
+        command =
+            '-y $inputArgs -filter_complex "$filter" -map "[aout]" '
+            '-c:a libmp3lame -q:a 4 "$outputPath"';
+      }
+
       final result = await FFmpegExecutor.execute(command);
-
-      try {
-        await File(concatListPath).delete();
-      } catch (_) {}
 
       if (result.isSuccess) {
         print('✅ Narration segments stitched → $outputPath');
