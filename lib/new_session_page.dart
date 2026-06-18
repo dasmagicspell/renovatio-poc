@@ -1478,8 +1478,6 @@ class _NewSessionPageState extends State<NewSessionPage> {
   Future<void> _playVoicePreview() async {
     final selectedVoice = _selectedVoice;
     if (selectedVoice == null ||
-        selectedVoice.previewUrl == null ||
-        selectedVoice.previewUrl!.isEmpty ||
         _isPlayingVoicePreview ||
         _isLoadingVoicePreview) {
       return;
@@ -1515,7 +1513,7 @@ class _NewSessionPageState extends State<NewSessionPage> {
         },
       );
 
-      await _voicePreviewPlayer!.setUrl(selectedVoice.previewUrl!);
+      await _voicePreviewPlayer!.setUrl(selectedVoice.hostedPreviewUrl);
       await _voicePreviewPlayer!.setVolume(_narrationVolume);
       await _voicePreviewPlayer!.play();
 
@@ -1737,9 +1735,7 @@ class _NewSessionPageState extends State<NewSessionPage> {
     final hasAmbience = _selectedBackgroundAmbience != null && _selectedBackgroundAmbience != 'None';
     final hasNarrationFile = _selectedUserNarration != null &&
         _selectedUserNarration != 'None';
-    final hasNarration = hasNarrationFile ||
-        (_selectedVoice?.previewUrl != null &&
-            _selectedVoice!.previewUrl!.isNotEmpty);
+    final hasNarration = hasNarrationFile || _selectedVoice != null;
 
     if (!hasBinaural && !hasMusic && !hasAmbience && !hasNarration) {
       if (mounted) {
@@ -1949,7 +1945,7 @@ class _NewSessionPageState extends State<NewSessionPage> {
                 });
               }
             });
-            await _voicePreviewPlayer!.setUrl(_selectedVoice!.previewUrl!);
+            await _voicePreviewPlayer!.setUrl(_selectedVoice!.hostedPreviewUrl);
             await _voicePreviewPlayer!.setVolume(_narrationVolume);
             unawaited(_voicePreviewPlayer!.play());
             if (mounted) setState(() => _isPlayingVoicePreview = true);
@@ -3166,8 +3162,7 @@ class _NewSessionPageState extends State<NewSessionPage> {
                                 Expanded(child: _buildVoiceDropdown()),
                                 const SizedBox(width: 8),
                                 _buildPreviewButton(
-                                  enabled: _selectedVoice?.previewUrl != null &&
-                                      _selectedVoice!.previewUrl!.isNotEmpty,
+                                  enabled: _selectedVoice != null,
                                   isPlaying: _isPlayingVoicePreview,
                                   isLoading: _isLoadingVoicePreview,
                                   onPlay: _playVoicePreview,
@@ -3176,8 +3171,7 @@ class _NewSessionPageState extends State<NewSessionPage> {
                                 ),
                               ],
                             ),
-                            if (_selectedVoice?.previewUrl != null &&
-                                _selectedVoice!.previewUrl!.isNotEmpty) ...[
+                            if (_selectedVoice != null) ...[
                               const SizedBox(height: 8),
                               Text(
                                 _isLoadingVoicePreview

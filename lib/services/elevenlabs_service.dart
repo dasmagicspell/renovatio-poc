@@ -674,11 +674,17 @@ class ElevenLabsService {
 
 /// Model class for ElevenLabs voice
 class ElevenLabsVoice {
+  /// Base URL for hosted narration voice preview MP3s (`{voiceId}.mp3`).
+  static const String hostedPreviewBaseUrl = 'http://167.172.125.207:8085';
+
   final String voiceId;
   final String name;
   final String? previewUrl;
   final String? category;
   final Map<String, dynamic>? settings;
+
+  /// Remote preview URL served as `{voiceId}.mp3` on [hostedPreviewBaseUrl].
+  String get hostedPreviewUrl => '$hostedPreviewBaseUrl/$voiceId.mp3';
   
   ElevenLabsVoice({
     required this.voiceId,
