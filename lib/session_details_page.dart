@@ -20,6 +20,7 @@ import 'services/user_music_library_service.dart';
 import 'services/user_ambience_library_service.dart';
 import 'services/user_narration_library_service.dart';
 import 'audio_processor.dart';
+import 'widgets/upgrade_contact_dialog.dart';
 
 class SessionDetailsPage extends StatefulWidget {
   final Session session;
@@ -3082,7 +3083,7 @@ class _SessionDetailsPageState extends State<SessionDetailsPage> {
                 ),
                 const SizedBox(height: 16),
                 ElevatedButton.icon(
-                  onPressed: () {},
+                  onPressed: () => showUpgradeContactDialog(context),
                   icon: const Icon(Icons.mail_outline_rounded, size: 18),
                   label: const Text('Contact Us to Upgrade'),
                   style: ElevatedButton.styleFrom(
